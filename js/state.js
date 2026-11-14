@@ -1,741 +1,506 @@
-// --- ADMIN LOCK STATE & AUTHENTICATION ---
-window.isDeckBuilderUnlocked = false;
-const DECK_BUILDER_ADMIN_PASS = 'fatfat666';
+// --- GLOBAL STATE & PERSISTENT MASTERY SYSTEM (v0.8.0) ---
+const ADMIN_PASSCODE = 'fatfat666';
 
-window.updateBuilderLockBadges = function() {
- const unlocked = window.isDeckBuilderUnlocked === true;
- const mainBtn = document.getElementById('btn-main-builder');
- const classBtn = document.getElementById('btn-class-builder');
- const boardBtn = document.getElementById('btn-board-builder');
- const tabBtn = document.getElementById('tab-builder-btn');
- const previewBtn = document.getElementById('btn-modal-preview-combat');
-
- if (mainBtn) mainBtn.innerText = unlocked ? '🔓 CARD BUILDER & PREVIEW' : '🔒 CARD BUILDER & PREVIEW';
- if (classBtn) classBtn.innerText = unlocked ? '🔓 CUSTOMIZE DECK' : '🔒 CUSTOMIZE DECK';
- if (boardBtn) boardBtn.innerText = unlocked ? '🔓 OPEN CARD BUILDER' : '🔒 OPEN CARD BUILDER';
- if (tabBtn) tabBtn.innerText = unlocked ? '🔓 DECK BUILDER (CUSTOMIZE)' : '🔒 DECK BUILDER (ADMIN)';
- if (previewBtn) previewBtn.style.display = (unlocked && window.currentGalleryTab === 'builder') ? 'inline-block' : 'none';
+const DEFAULT_MASTERY_DATA = {
+  Mage: { kills: 0, runsCompleted: 0, unlocked: [true, false, false, false] },
+  Warrior: { kills: 0, runsCompleted: 0, unlocked: [true, false, false, false] },
+  Rogue: { kills: 0, runsCompleted: 0, unlocked: [true, false, false, false] },
+  Chronomancer: { kills: 0, runsCompleted: 0, unlocked: [true, false, false, false] },
+  Artificer: { kills: 0, runsCompleted: 0, unlocked: [true, false, false, false] },
+  'Blood Reaver': { kills: 0, runsCompleted: 0, unlocked: [true, false, false, false] },
+  'Mob Boss': { kills: 0, runsCompleted: 0, unlocked: [true, false, false, false] }
 };
 
-window.openAdminLockModal = function() {
- const modal = document.getElementById('modal-admin-lock');
- const input = document.getElementById('admin-password-input');
- const errEl = document.getElementById('admin-password-error');
- const box = document.getElementById('admin-lock-box');
- if (!modal) return;
- if (errEl) errEl.innerText = '';
- if (box) box.classList.remove('shake');
- if (input) input.value = '';
- modal.classList.add('active');
- setTimeout(() => {
-  if (input) input.focus();
- }, 40);
-};
+let masteryData = loadMasteryData();
 
-window.closeAdminLockModal = function() {
- const modal = document.getElementById('modal-admin-lock');
- if (modal) modal.classList.remove('active');
-};
-
-window.verifyAdminPassword = function() {
- const input = document.getElementById('admin-password-input');
- const errEl = document.getElementById('admin-password-error');
- const box = document.getElementById('admin-lock-box');
- const entered = input ? input.value : '';
-
- if (entered === DECK_BUILDER_ADMIN_PASS) {
-  window.isDeckBuilderUnlocked = true;
-  window.updateBuilderLockBadges();
-  window.closeAdminLockModal();
-  showToast('🔓 Admin Access Granted — Deck Builder Unlocked!', 'var(--accent-green)');
-  const deckModal = document.getElementById('modal-deck');
-  if (deckModal) deckModal.classList.add('active');
-  window.switchIndexTab('builder');
- } else {
-  if (errEl) errEl.innerText = 'Access Denied: Invalid Admin Password.';
-  if (box) {
-   box.classList.remove('shake');
-   void box.offsetWidth;
-   box.classList.add('shake');
+function loadMasteryData() {
+  try {
+    const raw = localStorage.getItem('rogue_board_mastery');
+    if (!raw) return JSON.parse(JSON.stringify(DEFAULT_MASTERY_DATA));
+    const parsed = JSON.parse(raw);
+    const merged = JSON.parse(JSON.stringify(DEFAULT_MASTERY_DATA));
+    for (const cls of Object.keys(merged)) {
+      if (parsed[cls]) {
+        merged[cls].kills = Number(parsed[cls].kills) || 0;
+        merged[cls].runsCompleted = Number(parsed[cls].runsCompleted) || 0;
+        if (Array.isArray(parsed[cls].unlocked)) {
+          merged[cls].unlocked = [
+            true,
+            Boolean(parsed[cls].unlocked[1]),
+            Boolean(parsed[cls].unlocked[2]),
+            Boolean(parsed[cls].unlocked[3])
+          ];
+        }
+      }
+    }
+    return merged;
+  } catch (e) {
+    return JSON.parse(JSON.stringify(DEFAULT_MASTERY_DATA));
   }
-  if (input) {
-   input.value = '';
-   input.focus();
+}
+
+function saveMasteryData() {
+  try {
+    localStorage.setItem('rogue_board_mastery', JSON.stringify(masteryData));
+  } catch (e) {}
+}
+
+function getClassUnlockedArray(classType) {
+  return (masteryData[classType] && masteryData[classType].unlocked) || [true, false, false, false];
+}
+
+function checkMasteryUnlocks(classType) {
+  const m = masteryData[classType];
+  const defs = MASTERY_DEFINITIONS[classType];
+  if (!m || !defs) return;
+  let newlyUnlocked = false;
+  for (let i = 1; i < defs.length; i++) {
+    if (!m.unlocked[i]) {
+      const val = defs[i].isRun ? m.runsCompleted : m.kills;
+      if (val >= defs[i].reqVal) {
+        m.unlocked[i] = true;
+        newlyUnlocked = true;
+        if (typeof showToast === 'function') {
+          showToast(`🏆 MASTERY UNLOCKED: ${defs[i].title}!`, 'success');
+        }
+      }
+    }
   }
- }
+  if (newlyUnlocked) saveMasteryData();
+}
+
+const gameState = {
+  screen: 'MAIN',
+  classType: 'Mage',
+  stage: 1, // 1 = Neon Underworld, 2 = Astral Nexus
+  boardNode: 1,
+  maxNodes: 5,
+  nodeRevealed: false,
+  nodeOutcome: null,
+  gold: 50,
+  syndicateCash: 0,
+  notoriety: 0,
+  blackMarketStock: [],
+  blackMarketRestocks: 0,
+  blackMarketRestockDiscount: 0,
+  runDebuffs: [],
+  relics: {
+    BLACK_FLASH: 0,
+    TIME_WARP: 0,
+    DEFLECTION: 0,
+    SHADOW_WEAVE: 0,
+    FRENZY: 0,
+    IGNITION: 0,
+    CHRONO_HOURGLASS: 0,
+    AEGIS_OVERCHARGER: 0,
+    SYNDICATE_SIGNET: 0
+  },
+  deck: [],
+  drawPileAction: [],
+  drawPileTome: [],
+  hand: [],
+  sequence: [null, null, null],
+  vault: [],
+  maxVaultSlots: 1,
+  scrapLimit: 1,
+  bonusScrapLimitThisTurn: 0,
+  scrappedThisTurn: 0,
+  totalScrappedThisBattle: 0,
+  nextScrapBonusEnergy: 0,
+  isRestTurn: false,
+  nextTurnRestBonus: false,
+  nextTurnBonusEnergy: 0,
+  nextTurnBonusMana: 0,
+  manaSpentThisTurn: 0,
+  cardsPlayedThisTurn: 0,
+  tomesPlayedThisBattle: 0,
+  playedCardsHistory: [],
+  battleTurnCount: 1,
+  warriorNoHpLossTurns: 0,
+  tookHpDamageThisTurn: false,
+  shieldDecayLocked: false,
+  prismaticActive: false,
+  spellweaverEchoActive: false,
+  miragePoisonRetaliate: 0,
+  thornsDmgThisTurn: 0,
+  guaranteedDodges: 0,
+  shadowCritPrimed: false,
+  tempCritBonus: 0,
+  nextAttackBonusDmg: 0,
+  nextAttackForceCrit: false,
+  nextAttackBleed: 0,
+  nextAttackLifesteal: 0,
+  enemyAtkDebuff: 0,
+  bountyTargetId: null,
+  reactiveArmorActive: false,
+  turrets: [], // Array of { id, type, name, hp, maxHp }
+  mobEnforcers: [],
+  warriorRevived: false,
+  isExecuting: false,
+  combatOver: false,
+  isBuilderUnlocked: false,
+  builderFilter: 'ALL',
+  player: {
+    hp: 60,
+    maxHp: 60,
+    shield: 0,
+    energy: 3,
+    maxEnergy: 3,
+    mana: 0,
+    maxMana: 5,
+    chronos: 0,
+    maxChronos: 3,
+    parts: 0,
+    maxParts: 6,
+    critChance: 0.05,
+    dodgeChance: 0.05
+  },
+  enemies: []
 };
 
-window.lockDeckBuilder = function() {
- window.isDeckBuilderUnlocked = false;
- window.updateBuilderLockBadges();
- showToast('🔒 Deck Builder Locked.', 'var(--accent-gold)');
- window.switchIndexTab('cards');
-};
-
-function getDefaultStarterDeck(cls) {
- if (cls === 'Mage') {
-  return ['arcane_strike', 'arcane_strike', 'barrier', 'barrier', 'spark', 'spark', 'arcane_battery'];
- } else if (cls === 'Warrior') {
-  return ['heavy_slash', 'heavy_slash', 'iron_defense', 'iron_defense', 'iron_defense', 'restoration', 'fortify'];
- } else if (cls === 'Chronomancer') {
-  return ['chrono_slash', 'chrono_slash', 'stasis_bubble', 'stasis_bubble', 'rift_strike', 'rift_strike', 'stasis_surge'];
- } else if (cls === 'Artificer') {
-  return ['wrench_toss', 'wrench_toss', 'reinforced_plating', 'reinforced_plating', 'capacitor_discharge', 'capacitor_discharge', 'overclock_blueprint'];
- } else if (cls === 'Blood Reaver') {
-  return ['siphon_slash', 'siphon_slash', 'serrated_cleave', 'serrated_cleave', 'blood_boil', 'blood_boil', 'blood_suck'];
- } else if (cls === 'Mob Boss') {
-  return ['tommy_gun_spray', 'tommy_gun_spray', 'protection_racket', 'protection_racket', 'shakedown', 'shakedown', 'syndicate_ledger'];
- }
- return ['quick_dagger', 'quick_dagger', 'smoke_screen', 'smoke_screen', 'toxic_needle', 'toxic_needle', 'venom_spreader'];
+function getMaxDeckSize() {
+  return gameState.stage >= 2 ? 26 : 20;
 }
 
-function loadMasteryProgress() {
- const defaultProgress = {
-  totalEnemiesKilled: 0,
-  runsCompleted: 0,
-  mageUnlocked: [true, false, false, false],
-  warriorUnlocked: [true, false, false, false],
-  rogueUnlocked: [true, false, false, false],
-  chronomancerUnlocked: [true, false, false, false],
-  artificerUnlocked: [true, false, false, false],
-  bloodreaverUnlocked: [true, false, false, false],
-  mobbossUnlocked: [true, false, false, false]
- };
- try {
-  const parsed = JSON.parse(localStorage.getItem('rogue_board_mastery') || '{}');
-  return syncMasteryUnlocks({ ...defaultProgress, ...parsed });
- } catch (e) {
-  return defaultProgress;
- }
+function getMaxTurrets() {
+  if (gameState.classType === 'Artificer' && getClassUnlockedArray('Artificer')[3]) {
+    return 4;
+  }
+  return 3;
 }
 
-function syncMasteryUnlocks(progress) {
- const kills = progress.totalEnemiesKilled || 0;
- const runs = progress.runsCompleted || 0;
-
- const reqMap = {
-  mageUnlocked: [0, 10, 3, 5],
-  warriorUnlocked: [0, 15, 3, 5],
-  rogueUnlocked: [0, 12, 3, 5],
-  chronomancerUnlocked: [0, 12, 3, 5],
-  artificerUnlocked: [0, 15, 3, 5],
-  bloodreaverUnlocked: [0, 15, 3, 5],
-  mobbossUnlocked: [0, 15, 3, 5]
- };
-
- Object.keys(reqMap).forEach(key => {
-  if (!Array.isArray(progress[key])) progress[key] = [true, false, false, false];
-  while (progress[key].length < 4) progress[key].push(false);
-  progress[key][0] = true;
-  if (kills >= reqMap[key][1]) progress[key][1] = true;
-  if (runs >= reqMap[key][2]) progress[key][2] = true;
-  if (runs >= reqMap[key][3]) progress[key][3] = true;
- });
-
- return progress;
+function getBloodReaverOverhealCap() {
+  if (gameState.classType !== 'Blood Reaver') return 0;
+  return getClassUnlockedArray('Blood Reaver')[3] ? 50 : 25;
 }
 
-function saveMasteryProgress() {
- syncMasteryUnlocks(gameState.masteryProgress);
- localStorage.setItem('rogue_board_mastery', JSON.stringify(gameState.masteryProgress));
+function resetGameState(classType) {
+  gameState.classType = classType;
+  gameState.stage = 1;
+  gameState.boardNode = 1;
+  gameState.maxNodes = 5;
+  gameState.nodeRevealed = false;
+  gameState.nodeOutcome = null;
+  gameState.gold = 50;
+  gameState.syndicateCash = 0;
+  gameState.notoriety = 0;
+  gameState.blackMarketStock = [];
+  gameState.blackMarketRestocks = 0;
+  gameState.blackMarketRestockDiscount = 0;
+  gameState.runDebuffs = [];
+
+  for (const k of Object.keys(gameState.relics)) gameState.relics[k] = 0;
+
+  gameState.maxVaultSlots = ['Mage', 'Warrior', 'Chronomancer', 'Mob Boss'].includes(classType) ? 2 : 1;
+  gameState.scrapLimit = classType === 'Artificer' ? 2 : 1;
+  gameState.bonusScrapLimitThisTurn = 0;
+  gameState.scrappedThisTurn = 0;
+  gameState.totalScrappedThisBattle = 0;
+  gameState.nextScrapBonusEnergy = 0;
+  gameState.isRestTurn = false;
+  gameState.nextTurnRestBonus = false;
+  gameState.nextTurnBonusEnergy = 0;
+  gameState.nextTurnBonusMana = 0;
+  gameState.manaSpentThisTurn = 0;
+  gameState.cardsPlayedThisTurn = 0;
+  gameState.tomesPlayedThisBattle = 0;
+  gameState.playedCardsHistory = [];
+  gameState.battleTurnCount = 1;
+  gameState.warriorNoHpLossTurns = 0;
+  gameState.tookHpDamageThisTurn = false;
+  gameState.shieldDecayLocked = false;
+  gameState.prismaticActive = false;
+  gameState.spellweaverEchoActive = false;
+  gameState.miragePoisonRetaliate = 0;
+  gameState.thornsDmgThisTurn = 0;
+  gameState.guaranteedDodges = 0;
+  gameState.shadowCritPrimed = false;
+  gameState.tempCritBonus = 0;
+  gameState.nextAttackBonusDmg = 0;
+  gameState.nextAttackForceCrit = false;
+  gameState.nextAttackBleed = 0;
+  gameState.nextAttackLifesteal = 0;
+  gameState.enemyAtkDebuff = 0;
+  gameState.bountyTargetId = null;
+  gameState.reactiveArmorActive = false;
+  gameState.turrets = [];
+  gameState.mobEnforcers = [];
+  gameState.warriorRevived = false;
+  gameState.isExecuting = false;
+  gameState.combatOver = false;
+
+  const unlocked = getClassUnlockedArray(classType);
+
+  if (classType === 'Mage') {
+    const bonusMaxMana = unlocked[1] ? 2 : 0; // T2: Mana Overflow (+2 Base Max Mana)
+    gameState.player = {
+      hp: 55, maxHp: 55, shield: 0, energy: 3, maxEnergy: 3,
+      mana: 3, maxMana: 5 + bonusMaxMana, chronos: 0, maxChronos: 3,
+      parts: 0, maxParts: 6, critChance: 0.0, dodgeChance: 0.05
+    };
+    gameState.deck = ['arcane_strike', 'arcane_strike', 'barrier', 'barrier', 'spark', 'spark', 'arcane_battery', 'chrono_echo'];
+  } else if (classType === 'Warrior') {
+    const bonusHp = unlocked[0] ? 20 : 0; // T1: Heavy Iron (+20 Max HP & +5 Starting Shield)
+    const bonusShield = unlocked[0] ? 5 : 0;
+    gameState.player = {
+      hp: 90 + bonusHp, maxHp: 90 + bonusHp, shield: 15 + bonusShield, energy: 3, maxEnergy: 3,
+      mana: 0, maxMana: 0, chronos: 0, maxChronos: 3,
+      parts: 0, maxParts: 6, critChance: 0.05, dodgeChance: 0.02
+    };
+    gameState.deck = ['heavy_slash', 'heavy_slash', 'iron_defense', 'iron_defense', 'restoration', 'bastion_scrap', 'fortify', 'patience_fury'];
+  } else if (classType === 'Rogue') {
+    const bonusEnergy = unlocked[1] ? 1 : 0; // T2: Assassin Mastery (+1 Max Energy)
+    gameState.player = {
+      hp: 70, maxHp: 70, shield: 0, energy: 3 + bonusEnergy, maxEnergy: 3 + bonusEnergy,
+      mana: 0, maxMana: 0, chronos: 0, maxChronos: 3,
+      parts: 0, maxParts: 6, critChance: 0.15, dodgeChance: 0.20
+    };
+    gameState.deck = ['quick_dagger', 'quick_dagger', 'smoke_screen', 'toxic_needle', 'toxic_needle', 'vial_stash', 'venom_spreader', 'shadow_prep'];
+  } else if (classType === 'Chronomancer') {
+    const maxChronos = unlocked[3] ? 4 : 3; // T4: Lord of Eternity (Max Chronos 4)
+    gameState.player = {
+      hp: 70, maxHp: 70, shield: 5, energy: 3, maxEnergy: 3,
+      mana: 0, maxMana: 0, chronos: 1, maxChronos,
+      parts: 0, maxParts: 6, critChance: 0.10, dodgeChance: 0.10
+    };
+    gameState.deck = ['chrono_slash', 'chrono_slash', 'stasis_bubble', 'stasis_bubble', 'rift_strike', 'rift_strike', 'stasis_surge', 'deja_vu'];
+  } else if (classType === 'Artificer') {
+    gameState.player = {
+      hp: 75, maxHp: 75, shield: 10, energy: 3, maxEnergy: 3,
+      mana: 0, maxMana: 0, chronos: 0, maxChronos: 3,
+      parts: 2, maxParts: 6, critChance: 0.10, dodgeChance: 0.05
+    };
+    gameState.deck = ['wrench_toss', 'wrench_toss', 'reinforced_plating', 'reinforced_plating', 'capacitor_discharge', 'overclock_blueprint', 'auto_turret_drone', 'scrap_salvage'];
+  } else if (classType === 'Blood Reaver') {
+    gameState.player = {
+      hp: 115, maxHp: 115, shield: 0, energy: 2, maxEnergy: 2,
+      mana: 0, maxMana: 0, chronos: 0, maxChronos: 3,
+      parts: 0, maxParts: 6, critChance: 0.15, dodgeChance: 0.05
+    };
+    gameState.deck = ['siphon_slash', 'siphon_slash', 'serrated_cleave', 'serrated_cleave', 'blood_boil', 'flurry_of_fangs', 'coagulate', 'blood_suck'];
+  } else if (classType === 'Mob Boss') {
+    gameState.syndicateCash = 45;
+    gameState.notoriety = 15; // Rank II (15 ★) unlocked by T1/T4 Syndicate Boss
+    gameState.player = {
+      hp: 80, maxHp: 80, shield: 10, energy: 3, maxEnergy: 3,
+      mana: 0, maxMana: 0, chronos: 0, maxChronos: 3,
+      parts: 0, maxParts: 6, critChance: 0.10, dodgeChance: 0.10
+    };
+    gameState.deck = ['tommy_gun_spray', 'tommy_gun_spray', 'protection_racket', 'protection_racket', 'shakedown', 'money_laundering', 'syndicate_ledger', 'black_market_voucher'];
+    generateBlackMarketStock();
+  }
 }
 
-function getClassUnlockedArray(cls) {
- const keyMap = {
-  'Mage': 'mageUnlocked',
-  'Warrior': 'warriorUnlocked',
-  'Rogue': 'rogueUnlocked',
-  'Chronomancer': 'chronomancerUnlocked',
-  'Artificer': 'artificerUnlocked',
-  'Blood Reaver': 'bloodreaverUnlocked',
-  'Mob Boss': 'mobbossUnlocked'
- };
- const k = keyMap[cls] || 'rogueUnlocked';
- if (!Array.isArray(gameState.masteryProgress[k])) {
-  gameState.masteryProgress[k] = [true, false, false, false];
- }
- while (gameState.masteryProgress[k].length < 4) {
-  gameState.masteryProgress[k].push(false);
- }
- return gameState.masteryProgress[k];
-}
-
-function getMaxVaultSlots(cls) {
- if (cls === 'Warrior' || cls === 'Mage' || cls === 'Chronomancer' || cls === 'Mob Boss') return 2;
- return 1;
-}
-
-// --- NOTORIETY RANK & BLACK MARKET SLOT UNLOCK SYSTEM ---
-function getNotorietyInfo(notorietyVal) {
- const n = Math.max(0, Math.floor(Number(notorietyVal) || 0));
- if (n >= 75) {
-  return {
-   rankNum: 5,
-   rankName: 'RANK V • KINGPIN',
-   unlockedSlots: 6,
-   maxTier: 5,
-   discountRatio: 0.85,
-   nextThreshold: null,
-   prevThreshold: 75,
-   tierLabel: 'TIER I–V MYTHIC CONTRABAND (15% OFF)'
-  };
- } else if (n >= 50) {
-  return {
-   rankNum: 4,
-   rankName: 'RANK IV • UNDERBOSS',
-   unlockedSlots: 6,
-   maxTier: 4,
-   discountRatio: 1.0,
-   nextThreshold: 75,
-   prevThreshold: 50,
-   tierLabel: 'TIER I–IV CONTRABAND'
-  };
- } else if (n >= 30) {
-  return {
-   rankNum: 3,
-   rankName: 'RANK III • CAPO ENFORCER',
-   unlockedSlots: 5,
-   maxTier: 3,
-   discountRatio: 1.0,
-   nextThreshold: 50,
-   prevThreshold: 30,
-   tierLabel: 'TIER I–III CONTRABAND'
-  };
- } else if (n >= 15) {
-  return {
-   rankNum: 2,
-   rankName: 'RANK II • MADE ASSOCIATE',
-   unlockedSlots: 4,
-   maxTier: 2,
-   discountRatio: 1.0,
-   nextThreshold: 30,
-   prevThreshold: 15,
-   tierLabel: 'TIER I–II CONTRABAND'
-  };
- }
- return {
-  rankNum: 1,
-  rankName: 'RANK I • STREET ROOKIE',
-  unlockedSlots: 3,
-  maxTier: 1,
-  discountRatio: 1.0,
-  nextThreshold: 15,
-  prevThreshold: 0,
-  tierLabel: 'TIER I CONTRABAND'
- };
+// --- BLACK MARKET & SYNDICATE NOTORIETY HELPERS (MOB BOSS EXCLUSIVE) ---
+function getNotorietyRankInfo(notoriety = gameState.notoriety) {
+  if (notoriety >= 75) {
+    return { rank: 5, title: 'RANK V • KINGPIN', unlockedSlots: 6, maxTier: 5, discount: 0.15, nextThreshold: null };
+  }
+  if (notoriety >= 50) {
+    return { rank: 4, title: 'RANK IV • UNDERBOSS', unlockedSlots: 6, maxTier: 4, discount: 0.0, nextThreshold: 75 };
+  }
+  if (notoriety >= 30) {
+    return { rank: 3, title: 'RANK III • CAPO ENFORCER', unlockedSlots: 5, maxTier: 3, discount: 0.0, nextThreshold: 50 };
+  }
+  if (notoriety >= 15) {
+    return { rank: 2, title: 'RANK II • MADE ASSOCIATE', unlockedSlots: 4, maxTier: 2, discount: 0.0, nextThreshold: 30 };
+  }
+  return { rank: 1, title: 'RANK I • STREET ROOKIE', unlockedSlots: 3, maxTier: 1, discount: 0.0, nextThreshold: 15 };
 }
 
 function getBlackMarketCardPrice(cardDef) {
- if (!cardDef) return 15;
- const info = getNotorietyInfo(gameState.notoriety || 0);
- const mobT3Mult = (gameState.classType === 'Mob Boss' && getClassUnlockedArray('Mob Boss')[2]) ? 0.75 : 1.0;
- return Math.max(5, Math.round((cardDef.basePrice || 20) * mobT3Mult * info.discountRatio));
+  if (!cardDef) return 20;
+  let price = cardDef.basePrice || 20;
+  const rankInfo = getNotorietyRankInfo();
+  if (rankInfo.discount > 0) price *= (1 - rankInfo.discount);
+  if (gameState.classType === 'Mob Boss' && getClassUnlockedArray('Mob Boss')[2]) {
+    price *= 0.75; // T3 Untouchable Kingpin: -25% Black Market prices
+  }
+  if ((gameState.relics.SYNDICATE_SIGNET || 0) >= 3) {
+    price *= 0.85; // Syndicate Signet Tier 3: 15% discount
+  }
+  return Math.max(5, Math.round(price));
 }
 
 function getBlackMarketRestockCost() {
- const info = getNotorietyInfo(gameState.notoriety || 0);
- const mobT3Mult = (gameState.classType === 'Mob Boss' && getClassUnlockedArray('Mob Boss')[2]) ? 0.75 : 1.0;
- const consigliereDiscount = gameState.restockDiscount || 0;
- return Math.max(5, Math.round((15 - consigliereDiscount) * mobT3Mult * info.discountRatio));
-}
-
-function pickContrabandCardForTier(maxTier, excludeIds = []) {
- const allContraband = Object.values(CARD_DATABASE).filter(c => c.isContraband && (c.contrabandTier || 1) <= maxTier);
- const filtered = allContraband.filter(c => !excludeIds.includes(c.id));
- const pool = filtered.length > 0 ? filtered : allContraband;
- if (pool.length === 0) return null;
- return pool[Math.floor(Math.random() * pool.length)];
+  let base = Math.max(5, 15 + (gameState.blackMarketRestocks * 5) - (gameState.blackMarketRestockDiscount || 0));
+  if ((gameState.relics.SYNDICATE_SIGNET || 0) >= 3) {
+    base = Math.max(5, Math.round(base * 0.85));
+  }
+  return base;
 }
 
 function generateBlackMarketStock() {
- const info = getNotorietyInfo(gameState.notoriety || 0);
- const usedIds = [];
- const stock = [];
- for (let i = 0; i < 6; i++) {
-  if (i < info.unlockedSlots) {
-   const card = pickContrabandCardForTier(info.maxTier, usedIds);
-   if (card) {
-    usedIds.push(card.id);
-    stock.push({ slotIndex: i, cardId: card.id, sold: false });
-   } else {
-    stock.push({ slotIndex: i, cardId: null, sold: false });
-   }
-  } else {
-   stock.push({ slotIndex: i, cardId: null, sold: false });
+  const allContraband = Object.values(CARD_DATABASE).filter(c => c.isContraband);
+  const rankInfo = getNotorietyRankInfo();
+  const eligible = allContraband.filter(c => (c.contrabandTier || 1) <= rankInfo.maxTier);
+  const stock = [];
+  for (let i = 0; i < 6; i++) {
+    const slotLocked = i >= rankInfo.unlockedSlots;
+    const pool = slotLocked ? allContraband : (eligible.length > 0 ? eligible : allContraband);
+    const pick = pool[Math.floor(Math.random() * pool.length)];
+    stock.push({
+      slotIndex: i,
+      cardId: pick.id,
+      sold: false,
+      locked: slotLocked,
+      reqRank: i === 3 ? 'Rank II (15★)' : (i === 4 ? 'Rank III (30★)' : (i === 5 ? 'Rank IV (50★)' : ''))
+    });
   }
- }
- gameState.blackMarketStock = stock;
+  gameState.blackMarketStock = stock;
 }
 
-function syncBlackMarketUnlockedSlots() {
- const info = getNotorietyInfo(gameState.notoriety || 0);
- if (!Array.isArray(gameState.blackMarketStock) || gameState.blackMarketStock.length !== 6) {
-  generateBlackMarketStock();
-  return;
- }
- const existingIds = gameState.blackMarketStock.filter(s => s && s.cardId).map(s => s.cardId);
- for (let i = 0; i < info.unlockedSlots; i++) {
-  if (!gameState.blackMarketStock[i] || !gameState.blackMarketStock[i].cardId) {
-   const card = pickContrabandCardForTier(info.maxTier, existingIds);
-   if (card) {
-    existingIds.push(card.id);
-    gameState.blackMarketStock[i] = { slotIndex: i, cardId: card.id, sold: false };
-   }
+function gainSyndicateCash(amount, sourceX, sourceY) {
+  if (amount <= 0) return;
+  gameState.syndicateCash += amount;
+  if (typeof spawnFloatingText === 'function' && sourceX !== undefined) {
+    spawnFloatingText(`+$${amount}`, sourceX, sourceY, '#eab308');
   }
- }
-}
-
-function createFreshPassives() {
- return {
-  BLACK_FLASH: 0,
-  TIME_WARP: 0,
-  DEFLECTION: 0,
-  SHADOW_WEAVE: 0,
-  FRENZY: 0,
-  IGNITION: 0,
-  CHRONO_HOURGLASS: 0,
-  AEGIS_OVERCHARGER: 0,
-  SYNDICATE_SIGNET: 0
- };
-}
-
-window.gameState = {
- classType: 'Rogue',
- stage: 1,
- boardNode: 1,
- maxNodes: 7,
- gold: 50,
- maxEnergy: 3,
- currentEnergy: 3,
- nextTurnBonusEnergy: 0,
- speedMultiplier: 1.0,
- speedLabel: '1x',
- abilityUsedThisTurn: false,
- firstAttackUsedThisTurn: false,
- secondWindUsed: false,
- nextHitBonusDmg: 0,
- nextHitMultiplier: 1.0,
- nextHitCritBonus: 0,
- nextHitLifestealBonus: 0,
- nextHitBonusHemorrhage: 0,
- guaranteedCritNextAttack: false,
- guaranteedDodgeCount: 0,
- manaSpentThisTurn: 0,
- attackDiscountThisTurn: 0,
- nextScrapBonusEnergy: 0,
- nextTomeEchoThisTurn: false,
- restBonusActiveThisTurn: false,
- restBonusActiveNextTurn: false,
- chronoEchoPlayedThisTurn: false,
- unvaultEnergyGrantedThisTurn: false,
- isExecuting: false,
- pendingNodeType: 'COMBAT',
- player: { hp: 70, maxHp: 70, shield: 0, critChance: 0.15, dodgeChance: 0.20, mana: 0, maxMana: 0 },
- enemies: [],
-
- // Chronomancer State
- chronos: 0,
- maxChronos: 3,
- chronosDodgeCounter: 0,
- lastInstantSlot1CardId: null,
- lastSlot1CardId: null,
-
- // Artificer State
- parts: 0,
- maxParts: 6,
- turrets: [],
- totalScrapsInBattle: 0,
- turretBonusVolleysThisTurn: 0,
- reactiveArmorActive: false,
-
- // Blood Reaver State
- spentHpThisTurn: false,
-
- // Mob Boss & Underground Black Market State
- cash: 0,
- notoriety: 0,
- cashSpentAccumulator: 0,
- restockDiscount: 0,
- intimidateMultiplier: 1.0,
- enforcers: [],
- blackMarketStock: [],
- reflectDamageThisTurn: 0,
-
- deck: getDefaultStarterDeck('Rogue'),
- drawPileAction: [],
- drawPileTome: [],
- discardPile: [],
- hand: [],
- vault: [],
- sequence: [null, null, null],
-
- scrapLimit: 1,
- scrapsUsedThisTurn: 0,
- juggernautStanceActive: false,
-
- passives: createFreshPassives(),
- masteryProgress: loadMasteryProgress(),
- discoveredIndex: JSON.parse(localStorage.getItem('rogue_board_discovered') || '{}')
-};
-
-window.resetGameState = function(className, preserveCustomDeck = false) {
- const chosenClass = className || window.gameState.classType || 'Rogue';
- const savedDeck = preserveCustomDeck && window.gameState.deck && window.gameState.deck.length > 0
-  ? [...window.gameState.deck]
-  : null;
-
- const mageUnl = getClassUnlockedArray('Mage');
- const warUnl = getClassUnlockedArray('Warrior');
- const rogueUnl = getClassUnlockedArray('Rogue');
- const chronoUnl = getClassUnlockedArray('Chronomancer');
- const mobUnl = getClassUnlockedArray('Mob Boss');
-
- window.gameState.classType = chosenClass;
- window.gameState.stage = 1;
- window.gameState.boardNode = 1;
- window.gameState.maxNodes = 7;
- window.gameState.gold = 50;
-
- let baseEnergy = 3;
- if (chosenClass === 'Blood Reaver') baseEnergy = 2;
- if (chosenClass === 'Rogue' && rogueUnl[1]) baseEnergy += 1;
-
- window.gameState.maxEnergy = baseEnergy;
- window.gameState.currentEnergy = baseEnergy;
- window.gameState.nextTurnBonusEnergy = 0;
- window.gameState.abilityUsedThisTurn = false;
- window.gameState.firstAttackUsedThisTurn = false;
- window.gameState.secondWindUsed = false;
- window.gameState.nextHitBonusDmg = 0;
- window.gameState.nextHitMultiplier = 1.0;
- window.gameState.nextHitCritBonus = 0;
- window.gameState.nextHitLifestealBonus = 0;
- window.gameState.nextHitBonusHemorrhage = 0;
- window.gameState.guaranteedCritNextAttack = false;
- window.gameState.guaranteedDodgeCount = 0;
- window.gameState.manaSpentThisTurn = 0;
- window.gameState.attackDiscountThisTurn = 0;
- window.gameState.nextScrapBonusEnergy = 0;
- window.gameState.nextTomeEchoThisTurn = false;
- window.gameState.restBonusActiveThisTurn = false;
- window.gameState.restBonusActiveNextTurn = false;
- window.gameState.chronoEchoPlayedThisTurn = false;
- window.gameState.unvaultEnergyGrantedThisTurn = false;
- window.gameState.isExecuting = false;
- window.gameState.drawPileAction = [];
- window.gameState.drawPileTome = [];
- window.gameState.discardPile = [];
- window.gameState.hand = [];
- window.gameState.vault = [];
- window.gameState.sequence = [null, null, null];
- window.gameState.scrapLimit = chosenClass === 'Artificer' ? 2 : 1;
- window.gameState.scrapsUsedThisTurn = 0;
- window.gameState.juggernautStanceActive = false;
- window.gameState.chronos = 0;
- window.gameState.maxChronos = (chosenClass === 'Chronomancer' && chronoUnl[3]) ? 4 : 3;
- window.gameState.chronosDodgeCounter = 0;
- window.gameState.lastInstantSlot1CardId = null;
- window.gameState.lastSlot1CardId = null;
- window.gameState.parts = 0;
- window.gameState.turrets = [];
- window.gameState.totalScrapsInBattle = 0;
- window.gameState.turretBonusVolleysThisTurn = 0;
- window.gameState.reactiveArmorActive = false;
- window.gameState.spentHpThisTurn = false;
- window.gameState.cash = chosenClass === 'Mob Boss' ? (mobUnl[0] ? 45 : 25) : 0;
- window.gameState.notoriety = chosenClass === 'Mob Boss' ? (mobUnl[3] ? 20 : 15) : 0;
- window.gameState.cashSpentAccumulator = 0;
- window.gameState.restockDiscount = 0;
- window.gameState.intimidateMultiplier = 1.0;
- window.gameState.enforcers = [];
- window.gameState.reflectDamageThisTurn = 0;
- window.gameState.passives = createFreshPassives();
-
- if (chosenClass === 'Mage') {
-  const maxMana = mageUnl[1] ? 7 : 5;
-  window.gameState.player = { hp: 55, maxHp: 55, shield: 0, critChance: 0.00, dodgeChance: 0.05, mana: maxMana, maxMana: maxMana };
- } else if (chosenClass === 'Warrior') {
-  const wHp = warUnl[0] ? 90 : 70;
-  const wShield = warUnl[0] ? 15 : 10;
-  window.gameState.player = { hp: wHp, maxHp: wHp, shield: wShield, critChance: 0.05, dodgeChance: 0.02, mana: 0, maxMana: 0 };
- } else if (chosenClass === 'Chronomancer') {
-  window.gameState.player = { hp: 70, maxHp: 70, shield: 5, critChance: 0.10, dodgeChance: 0.10, mana: 0, maxMana: 0 };
- } else if (chosenClass === 'Artificer') {
-  window.gameState.player = { hp: 75, maxHp: 75, shield: 10, critChance: 0.10, dodgeChance: 0.05, mana: 0, maxMana: 0 };
- } else if (chosenClass === 'Blood Reaver') {
-  window.gameState.player = { hp: 115, maxHp: 115, shield: 0, critChance: 0.15, dodgeChance: 0.05, mana: 0, maxMana: 0 };
- } else if (chosenClass === 'Mob Boss') {
-  window.gameState.player = { hp: 80, maxHp: 80, shield: 10, critChance: 0.10, dodgeChance: 0.10, mana: 0, maxMana: 0 };
- } else {
-  const rDodge = rogueUnl[0] ? 0.20 : 0.10;
-  const rCrit = rogueUnl[1] ? 0.25 : 0.15;
-  window.gameState.player = { hp: 70, maxHp: 70, shield: 0, critChance: rCrit, dodgeChance: rDodge, mana: 0, maxMana: 0 };
- }
-
- window.gameState.deck = savedDeck || getDefaultStarterDeck(chosenClass);
- generateBlackMarketStock();
-};
-
-// --- MOB BOSS $ CASH, ★ NOTORIETY & HIRED ENFORCER HELPERS ---
-function gainCash(amount = 10, x, y, labelOverride, triggerExplosion = false) {
- const signetTier = (gameState.passives && gameState.passives.SYNDICATE_SIGNET) || 0;
- const scaled = Math.round((Number(amount) || 0) * (1 + signetTier * 0.10));
- const safeAmt = Math.max(0, scaled);
- if (safeAmt <= 0) return;
- gameState.cash = (gameState.cash || 0) + safeAmt;
- if (x !== undefined && y !== undefined) {
-  if (triggerExplosion || safeAmt >= 15) {
-   spawnCashExplosionVFX(x, y - 12, safeAmt >= 20 ? 1.4 : 0.85);
-  } else {
-   spawnParticles(x, y, 10, { colors: [0x22c55e, 0xeab308, 0xfef08a], speed: 2.8, vyBias: -1.4, life: 22 });
+  if (typeof spawnCashParticles === 'function' && sourceX !== undefined) {
+    spawnCashParticles(sourceX, sourceY, Math.min(18, Math.max(6, Math.floor(amount / 2))), false);
   }
-  spawnFloatingText(x, y - 34, labelOverride || `+$${safeAmt} CASH ($${gameState.cash})`, '#4ade80');
- }
 }
 
-function gainNotoriety(amount = 5, x, y, labelOverride) {
- const safeAmt = Math.max(0, Math.round(Number(amount) || 0));
- if (safeAmt <= 0) return;
- const prevInfo = getNotorietyInfo(gameState.notoriety || 0);
- gameState.notoriety = (gameState.notoriety || 0) + safeAmt;
- const newInfo = getNotorietyInfo(gameState.notoriety);
- syncBlackMarketUnlockedSlots();
-
- if (x !== undefined && y !== undefined) {
-  spawnFloatingText(x, y - 50, labelOverride || `+${safeAmt} ★ NOTORIETY (${gameState.notoriety}★)`, '#eab308');
- }
- if (newInfo.unlockedSlots > prevInfo.unlockedSlots) {
-  showToast(`🎩 ${newInfo.rankName}! Black Market Slot #${newInfo.unlockedSlots} Unlocked!`, 'var(--accent-mob)');
- }
-}
-
-function spendCash(amount, x, y) {
- const safeAmt = Math.max(0, Math.round(Number(amount) || 0));
- if ((gameState.cash || 0) < safeAmt) return false;
- gameState.cash -= safeAmt;
-
- // Mob Boss T3 Mastery: Untouchable Kingpin (spending Cash grants +4 Shield per $10 spent)
- if (gameState.classType === 'Mob Boss' && getClassUnlockedArray('Mob Boss')[2] && safeAmt > 0) {
-  const prevBuckets = Math.floor((gameState.cashSpentAccumulator || 0) / 10);
-  gameState.cashSpentAccumulator = (gameState.cashSpentAccumulator || 0) + safeAmt;
-  const newBuckets = Math.floor(gameState.cashSpentAccumulator / 10);
-  const earnedBuckets = newBuckets - prevBuckets;
-  if (earnedBuckets > 0) {
-   const shieldBonus = earnedBuckets * 4;
-   addPlayerShield(shieldBonus, x, y);
-   if (x !== undefined && y !== undefined) {
-    spawnShockwave(x, y, 62, 0xeab308, 3, 20);
-    spawnFloatingText(x, y - 48, `👑 UNTOUCHABLE KINGPIN: +${shieldBonus} SHIELD!`, '#eab308');
-   }
+function spendSyndicateCash(amount) {
+  if (gameState.syndicateCash < amount) return false;
+  gameState.syndicateCash -= amount;
+  if (gameState.classType === 'Mob Boss' && getClassUnlockedArray('Mob Boss')[2]) {
+    const shieldGain = Math.floor(amount / 10) * 4;
+    if (shieldGain > 0 && gameState.screen === 'BATTLE') {
+      addPlayerShield(shieldGain);
+      if (typeof showToast === 'function') {
+        showToast(`👑 KINGPIN ARMOR: +${shieldGain} Shield from $${amount} spent!`, 'success');
+      }
+    }
   }
- }
- return true;
-}
-
-function hireOrReinforceEnforcer(x, y) {
- if (gameState.enforcers.length < 3) {
-  gameState.enforcers.push({ id: Date.now() + Math.random(), hp: 12, maxHp: 12 });
-  if (x !== undefined && y !== undefined) {
-   spawnShockwave(x + 24, y - 20, 68, 0xeab308, 4, 24);
-   spawnCashExplosionVFX(x + 24, y - 20, 0.85);
-   spawnFloatingText(x, y - 28, `🎩 ENFORCER #${gameState.enforcers.length} HIRED (12 HP)!`, '#eab308');
-  }
-  updateAbilityBarLabel();
- } else {
-  gameState.enforcers.forEach(e => e.hp = Math.min(e.maxHp || 12, e.hp + 6));
-  gainCash(15, x, y, 'CREW FULL → +6 ENFORCER HP & +$15 CASH!', true);
- }
-}
-
-function gainMana(amount = 1, x, y, labelOverride) {
- const safeAmt = Math.max(0, Math.round(Number(amount) || 0));
- if (safeAmt <= 0) return;
- if ((gameState.player.maxMana || 0) < 5) {
-  gameState.player.maxMana = 5;
- }
- gameState.player.mana = Math.min(gameState.player.maxMana, (gameState.player.mana || 0) + safeAmt);
- if (x !== undefined && y !== undefined) {
-  spawnFloatingText(x, y - 24, labelOverride || `+${safeAmt} MANA`, '#c084fc');
- }
-}
-
-function gainChronos(amount = 1, x, y, labelOverride) {
- const prev = gameState.chronos;
- gameState.chronos = Math.min(gameState.maxChronos, gameState.chronos + amount);
- const gained = gameState.chronos - prev;
- if (gained > 0 && x !== undefined && y !== undefined) {
-  spawnShockwave(x, y, 54, 0x2dd4bf, 3, 20);
-  spawnFloatingText(x, y - 34, labelOverride || `+${gained} CHRONOS (${gameState.chronos}/${gameState.maxChronos})`, '#2dd4bf');
- }
-}
-
-function gainParts(amount = 1, x, y, labelOverride) {
- const prev = gameState.parts;
- gameState.parts = Math.min(gameState.maxParts, gameState.parts + amount);
- const gained = gameState.parts - prev;
- if (gained > 0 && x !== undefined && y !== undefined) {
-  spawnParticles(x, y, 10, { colors: [0xf59e0b, 0xfef08a], speed: 2.8, shape: 'shard', life: 20 });
-  spawnFloatingText(x, y - 34, labelOverride || `+${gained} PART${gained > 1 ? 'S' : ''} (${gameState.parts}/${gameState.maxParts})`, '#f59e0b');
- }
-}
-
-function deployOrRefundArtificerTurret(x, y, constructType = 'auto_turret') {
- const spec = (typeof CONSTRUCT_CATALOG !== 'undefined' && CONSTRUCT_CATALOG[constructType])
-  ? CONSTRUCT_CATALOG[constructType]
-  : { type: 'auto_turret', name: 'Auto-Turret Drone', maxHp: 10 };
- const aegisTier = (gameState.passives && gameState.passives.AEGIS_OVERCHARGER) || 0;
- const scaledHp = Math.max(1, Math.round(spec.maxHp * (1 + aegisTier * 0.15)));
-
- if (gameState.turrets.length < 3) {
-  gameState.turrets.push({
-   id: Date.now() + Math.random(),
-   type: spec.type,
-   name: spec.name,
-   hp: scaledHp,
-   maxHp: scaledHp
-  });
-  if (x !== undefined && y !== undefined) {
-   spawnShockwave(x + 20, y - 24, 65, 0xf59e0b, 4, 24);
-   spawnParticles(x + 20, y - 24, 16, { colors: [0xf59e0b, 0x38bdf8, 0xfef08a], speed: 3.4, shape: 'shard', life: 24 });
-   spawnFloatingText(x, y - 28, `${spec.name.toUpperCase()} DEPLOYED (${scaledHp} HP)!`, '#f59e0b');
-  }
-  updateAbilityBarLabel();
- } else {
-  gainParts(2, x, y, 'MAX CONSTRUCTS (3/3) → +2 SCRAP PARTS!');
- }
-}
-
-function addPlayerShield(amount, x, y) {
- const aegisTier = (gameState.passives && gameState.passives.AEGIS_OVERCHARGER) || 0;
- const scaledAmt = Math.round((Number(amount) || 0) * (1 + aegisTier * 0.15));
- const safeAmount = Math.max(0, Math.floor(scaledAmt));
- if (safeAmount <= 0) return;
-
- if (gameState.classType === 'Blood Reaver') {
-  const brUnl = getClassUnlockedArray('Blood Reaver');
-  if (brUnl[0]) {
-   const extraCap = brUnl[3] ? 40 : 25;
-   const overhealCap = gameState.player.maxHp + extraCap;
-   const prevHp = gameState.player.hp;
-   gameState.player.hp = Math.min(overhealCap, Math.max(prevHp, prevHp + safeAmount));
-   const actualGain = gameState.player.hp - prevHp;
-   if (actualGain > 0 && x !== undefined && y !== undefined) {
-    spawnParticles(x, y, 12, { colors: [0xfb7185, 0xdc2626], speed: 2.4, vyBias: -1.6, shape: 'plus', life: 24 });
-    spawnFloatingText(x, y - 34, `SANGUINE OVERHEAL +${actualGain} HP`, '#fb7185');
-   }
-  } else if (x !== undefined && y !== undefined) {
-   spawnFloatingText(x, y - 34, 'BLOOD REAVER CANNOT GAIN SHIELD', '#fb7185');
-  }
-  return;
- }
- gameState.player.shield = (Number(gameState.player.shield) || 0) + safeAmount;
-}
-
-function applyDefenseCard(cardDef, srcPos, tgtPos, echoScale = 1.0, isEchoCast = false) {
- const baseVal = Number(cardDef.value) || 0;
- const chronosBonus = cardDef.id === 'stasis_bubble' ? Math.min(12, (Number(gameState.chronos) || 0) * 4) : 0;
- const rawGain = Math.round((baseVal + chronosBonus) * echoScale);
- const shieldGain = Math.max(1, rawGain);
-
- if (cardDef.id === 'fortify') {
-  const currentShield = Number(gameState.player.shield) || 0;
-  if (currentShield > 0) {
-   const doubledBonus = Math.max(0, Math.min(60, currentShield * 2) - currentShield);
-   addPlayerShield(doubledBonus + shieldGain, srcPos.x, srcPos.y);
-  } else {
-   addPlayerShield(shieldGain, srcPos.x, srcPos.y);
-  }
- } else {
-  addPlayerShield(shieldGain, srcPos.x, srcPos.y);
- }
-
- try {
-  playCardVFX(cardDef.id, srcPos, tgtPos);
- } catch (vfxErr) {
-  console.warn('Defense VFX warning:', vfxErr);
- }
-
- if (gameState.classType !== 'Blood Reaver') {
-  const scaledChronosBonus = Math.round(chronosBonus * echoScale);
-  const label = scaledChronosBonus > 0
-   ? `${isEchoCast ? 'ECHO ' : ''}+${shieldGain} SHIELD (+${scaledChronosBonus} CHRONOS)`
-   : `${isEchoCast ? 'ECHO ' : ''}+${shieldGain} SHIELD`;
-  spawnFloatingText(srcPos.x, srcPos.y - 20, label, scaledChronosBonus > 0 ? '#2dd4bf' : '#38bdf8');
- }
-}
-
-function healPlayerHp(amount, x, y, customLabel) {
- if (amount <= 0) return;
- const prevHp = gameState.player.hp;
- const targetCap = Math.max(gameState.player.maxHp, prevHp);
- gameState.player.hp = Math.min(targetCap, prevHp + amount);
- const healed = gameState.player.hp - prevHp;
- if (healed > 0 && x !== undefined && y !== undefined) {
-  spawnParticles(x, y, 12, { colors: [0x4ade80, 0xfb7185], speed: 2.2, vyBias: -1.8, shape: 'plus', life: 24 });
-  spawnFloatingText(x, y - 32, customLabel || `+${healed} HP`, '#4ade80');
- }
-}
-
-function spendPlayerHp(amount, x, y) {
- if (amount <= 0) return false;
- if (gameState.player.hp <= amount) return false;
- gameState.player.hp -= amount;
- if (gameState.classType === 'Blood Reaver') {
-  gameState.spentHpThisTurn = true;
- }
- if (x !== undefined && y !== undefined) {
-  spawnParticles(x, y, 12, { colors: [0xdc2626, 0xfb7185], speed: 3.0, life: 22 });
-  spawnFloatingText(x, y - 22, `-${amount} BLOOD HP`, '#fb7185');
- }
- return true;
-}
-
-function getEffectiveCritChance() {
- const blackFlashBonus = (gameState.passives.BLACK_FLASH || 0) * 0.05;
- const signetTier = (gameState.passives.SYNDICATE_SIGNET || 0);
- const signetCrit = signetTier >= 3 ? 0.10 : 0;
- let extra = gameState.nextHitCritBonus || 0;
- if (gameState.classType === 'Blood Reaver' && getClassUnlockedArray('Blood Reaver')[0] && gameState.spentHpThisTurn) {
-  extra += 0.10;
- }
- return Math.min(1.0, (gameState.player.critChance || 0) + blackFlashBonus + signetCrit + extra);
-}
-
-function getEffectiveDodgeChance() {
- if ((gameState.guaranteedDodgeCount || 0) > 0) return 1.0;
- const shadowWeaveBonus = (gameState.passives.SHADOW_WEAVE || 0) * 0.05;
- let baseDodge = gameState.player.dodgeChance || 0;
- if (gameState.classType === 'Rogue' && getClassUnlockedArray('Rogue')[0]) {
-  baseDodge = Math.max(0.20, baseDodge);
- }
- let chronosBonus = 0;
- if (gameState.classType === 'Chronomancer') {
-  chronosBonus = (gameState.chronos || 0) * 0.10;
- }
- return Math.min(0.95, baseDodge + shadowWeaveBonus + chronosBonus);
-}
-
-function triggerRogueShadowCounter(x, y, customLabel = 'DODGE → 100% CRIT PRIMED!') {
- if (gameState.classType === 'Rogue' && getClassUnlockedArray('Rogue')[0]) {
-  gameState.guaranteedCritNextAttack = true;
-  spawnRedBlackLightning(x - 32, y + 26, x + 32, y - 30, { segments: 6, jitter: 18, thickness: 0.9, forks: 2, life: 20 });
-  spawnShockwave(x, y, 64, 0xff1e42, 3, 20);
-  spawnFloatingText(x, y - 24, customLabel, '#4ade80');
   return true;
- }
- return false;
 }
 
-function triggerHemorrhageOnEnemy(enemy, eSprite, hits = 1, consumeHitStack = false) {
- if (!enemy || enemy.hp <= 0 || (enemy.hemorrhage || 0) <= 0) return 0;
- const totalBleedDmg = enemy.hemorrhage * 2 * hits;
- enemy.hp = Math.max(0, enemy.hp - totalBleedDmg);
- if (consumeHitStack) {
-  enemy.hemorrhage = Math.max(0, enemy.hemorrhage - 1);
- }
- if (eSprite) {
-  spawnParticles(eSprite.x, eSprite.y, 12 * hits, { colors: [0xdc2626, 0xfb7185, 0x991b1b], speed: 4.0, life: 22 });
-  spawnFloatingText(eSprite.x, eSprite.y - 38, `🩸 -${totalBleedDmg} HEMORRHAGE (${enemy.hemorrhage} LEFT)`, '#fb7185');
- }
- return totalBleedDmg;
+function gainNotoriety(amount) {
+  if (amount <= 0) return;
+  const prevRank = getNotorietyRankInfo(gameState.notoriety).rank;
+  gameState.notoriety += amount;
+  const newRankInfo = getNotorietyRankInfo(gameState.notoriety);
+  if (newRankInfo.rank > prevRank) {
+    generateBlackMarketStock();
+    if (typeof showToast === 'function') {
+      showToast(`⭐ NOTORIETY RANK UP: ${newRankInfo.title}! Black Market upgraded!`, 'success');
+    }
+  }
+}
+
+// --- COMBAT RESOURCE & SUMMON HELPERS ---
+function addPlayerShield(amount) {
+  if (amount <= 0) return;
+  let finalAmount = amount;
+  // Warrior T2 Mastery: Turtle Momentum (2 turns no HP loss -> 1.5x Shield)
+  if (gameState.classType === 'Warrior' && getClassUnlockedArray('Warrior')[1] && gameState.warriorNoHpLossTurns >= 2) {
+    finalAmount = Math.round(finalAmount * 1.5);
+  }
+
+  if (gameState.classType === 'Blood Reaver') {
+    const overhealCap = getBloodReaverOverhealCap();
+    const maxAllowedHp = gameState.player.maxHp + overhealCap;
+    const prevHp = gameState.player.hp;
+    gameState.player.hp = Math.min(maxAllowedHp, gameState.player.hp + finalAmount);
+    const gained = gameState.player.hp - prevHp;
+    if (gained > 0 && typeof spawnFloatingText === 'function' && typeof playerContainer !== 'undefined') {
+      spawnFloatingText(`+${gained} OVERHEAL`, playerContainer.x, playerContainer.y - 45, '#fb7185');
+    }
+  } else {
+    gameState.player.shield += finalAmount;
+    // Warrior T4 Mastery: Colossus Unbreakable (gaining Shield deals 35% of gained Shield as AoE shockwave DMG)
+    if (gameState.classType === 'Warrior' && getClassUnlockedArray('Warrior')[3] && gameState.screen === 'BATTLE') {
+      const shockwaveDmg = Math.max(1, Math.round(finalAmount * 0.35));
+      if (typeof dealWarriorColossusShockwave === 'function') {
+        dealWarriorColossusShockwave(shockwaveDmg);
+      }
+    }
+  }
+}
+
+function spendPlayerHp(amount) {
+  if (amount <= 0) return;
+  gameState.player.hp = Math.max(1, gameState.player.hp - amount);
+  gameState.tookHpDamageThisTurn = true;
+  if (gameState.classType === 'Blood Reaver') {
+    gameState.tempCritBonus = Math.min(1.0, (gameState.tempCritBonus || 0) + 0.10);
+    // Blood Reaver T4 Mastery: Crimson Apotheosis (spending HP deals equal bonus Hemorrhage stacks to all enemies)
+    if (getClassUnlockedArray('Blood Reaver')[3] && Array.isArray(gameState.enemies)) {
+      gameState.enemies.forEach(e => {
+        if (e.hp > 0) {
+          e.hemorrhage = (e.hemorrhage || 0) + amount;
+          if (typeof spawnFloatingText === 'function' && e.container) {
+            spawnFloatingText(`+${amount} BLEED`, e.container.x, e.container.y - 40, '#e11d48');
+          }
+        }
+      });
+    }
+  }
+}
+
+function gainChronos(amount) {
+  const maxC = gameState.player.maxChronos || 3;
+  gameState.player.chronos = Math.min(maxC, (gameState.player.chronos || 0) + amount);
+}
+
+function gainScrapParts(amount) {
+  const maxP = gameState.player.maxParts || 6;
+  gameState.player.parts = Math.min(maxP, (gameState.player.parts || 0) + amount);
+}
+
+function deployArtificerConstruct(constructType = 'auto_turret', customHp = null) {
+  const maxBays = getMaxTurrets();
+  const spec = CONSTRUCT_CATALOG[constructType] || CONSTRUCT_CATALOG.auto_turret;
+  const hpVal = customHp !== null ? customHp : spec.defaultHp;
+
+  if (gameState.turrets.length >= maxBays) {
+    // Reinforce lowest HP construct and refund +2 Parts
+    let lowest = gameState.turrets[0];
+    for (const t of gameState.turrets) {
+      if (t.hp < lowest.hp) lowest = t;
+    }
+    lowest.hp = Math.min(lowest.maxHp, lowest.hp + 6);
+    gainScrapParts(2);
+    if (typeof showToast === 'function') {
+      showToast(`Bay Full (${maxBays}/${maxBays})! Repaired ${lowest.name} (+6 HP) & +2 Parts!`, 'warning');
+    }
+    return false;
+  }
+
+  gameState.turrets.push({
+    id: 'construct_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+    type: spec.type,
+    name: spec.name,
+    hp: hpVal,
+    maxHp: hpVal
+  });
+  return true;
+}
+
+// Backward-compatible alias
+function deployArtificerTurret(customHp = null) {
+  return deployArtificerConstruct('auto_turret', customHp);
+}
+
+function summonMobEnforcer(customHp = null) {
+  const isT4 = gameState.classType === 'Mob Boss' && getClassUnlockedArray('Mob Boss')[3];
+  const baseHp = (customHp !== null ? customHp : 12) + (isT4 ? 6 : 0);
+
+  if (gameState.mobEnforcers.length >= 3) {
+    let lowest = gameState.mobEnforcers[0];
+    for (const e of gameState.mobEnforcers) {
+      if (e.hp < lowest.hp) lowest = e;
+    }
+    lowest.hp = Math.min(lowest.maxHp, lowest.hp + 6);
+    gainSyndicateCash(10);
+    if (typeof showToast === 'function') showToast('Crew Full (3/3)! Reinforced Enforcer & +$10 Cash!', 'warning');
+    return false;
+  }
+  gameState.mobEnforcers.push({
+    id: 'enforcer_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+    hp: baseHp,
+    maxHp: baseHp
+  });
+  return true;
 }
