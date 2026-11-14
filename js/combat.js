@@ -40,6 +40,7 @@ function initBattle(enemiesList) {
   }));
 
   gameState.hand = [];
+  gameState.discardPile = [];
   gameState.vault = [];
   gameState.sequence = [null, null, null];
   gameState.scrappedThisTurn = 0;
@@ -177,6 +178,12 @@ function drawSpecificCategory(category) {
     }));
     if (category === 'tome') gameState.drawPileTome = shuffleArray(rebuilt);
     else gameState.drawPileAction = shuffleArray(rebuilt);
+    if (Array.isArray(gameState.discardPile)) {
+      gameState.discardPile = gameState.discardPile.filter(c => {
+        const def = CARD_DATABASE[c.id];
+        return !(def && (category === 'tome' ? def.category === 'tome' : def.category !== 'tome'));
+      });
+    }
   }
   const activePile = category === 'tome' ? gameState.drawPileTome : gameState.drawPileAction;
   return activePile.pop() || null;
@@ -572,6 +579,10 @@ function executeSequence() {
     }
 
     resolveSingleCardAction(cardObj, currentSlot, 1.0);
+
+    if (!cardObj.isTemporalClone && Array.isArray(gameState.discardPile)) {
+      gameState.discardPile.push(cardObj);
+    }
 
     // Record card history for Temporal Paradox (avoiding self-loop)
     if (cardObj.id !== 'temporal_paradox') {
@@ -1409,8 +1420,29 @@ function getFirstLivingEnemy() {
 }
 
 // --- END PLAYER TURN & CARD-PLAYING ENEMY AI ---
+function discardUnvaultedHand() {
+  if (!Array.isArray(gameState.hand) || gameState.hand.length === 0) return;
+  if (!Array.isArray(gameState.discardPile)) gameState.discardPile = [];
+
+  const vaultedUids = new Set((gameState.vault || []).map(c => c.uid));
+  const keptInHand = [];
+
+  for (const cardObj of gameState.hand) {
+    if (vaultedUids.has(cardObj.uid)) {
+      keptInHand.push(cardObj);
+    } else {
+      gameState.discardPile.push(cardObj);
+    }
+  }
+
+  gameState.hand = keptInHand;
+}
+
 function endPlayerTurn() {
   if (gameState.combatOver) return;
+
+  discardUnvaultedHand();
+  updateBattleUI();
 
   fireAllArtificerTurrets(1.0);
   fireAllMobEnforcers(1.0);
