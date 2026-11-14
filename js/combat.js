@@ -39,35 +39,35 @@ function drawCardsForTurn(isFirstTurn = false) {
 }
 
 function drawTypeFromPile(cat, count) {
- const maxVaultSlots = getMaxVaultSlots(gameState.classType);
+  const maxVaultSlots = getMaxVaultSlots(gameState.classType);
 
- for (let i = 0; i < count; i++) {
- let pile = cat === 'action' ? gameState.drawPileAction : gameState.drawPileTome;
- pile.length === 0) {
- reshuffleCategoryDiscard(cat);
- pile = cat === 'action' ? gameState.drawPileAction : gameState.drawPileTome;
- }
- pile.length > 0) {
- const cId = pile.pop();
- const cardObj = { instanceId: Math.random().toString(36).substring(7), id: cId, isNew: true, turnsInVault: 0, wasUnvaultedThisTurn: false };
- 
- cId === 'vial_stash' && gameState.vault.length < maxVaultSlots) {
- gameState.vault.push(cardObj);
- playerSprite) {
- spawnPoisonBubbles(playerSprite.x, playerSprite.y - 10, 8);
- spawnFloatingText(playerSprite.x, playerSprite.y - 25, 'VIAL STASH AUTO-VAULTED!', '#4ade80');
- }
- } else cId === 'assembly_blueprint' && gameState.vault.length === 0) {
- gameState.vault.push(cardObj);
- playerSprite) {
- spawnParticles(playerSprite.x, playerSprite.y - 10, 10, { colors: [0xf59e0b, 0x38bdf8], speed: 2.5, shape: 'shard', life: 20 });
- spawnFloatingText(playerSprite.x, playerSprite.y - 25, '⚙️ BLUEPRINT AUTO-VAULTED!', '#f59e0b');
- }
- } else {
- gameState.hand.push(cardObj);
- }
- }
- }
+  for (let i = 0; i < count; i++) {
+    let pile = cat === 'action' ? gameState.drawPileAction : gameState.drawPileTome;
+    if (pile.length === 0) {
+      reshuffleCategoryDiscard(cat);
+      pile = cat === 'action' ? gameState.drawPileAction : gameState.drawPileTome;
+    }
+    if (pile.length > 0) {
+      const cId = pile.pop();
+      const cardObj = { instanceId: Math.random().toString(36).substring(7), id: cId, isNew: true, turnsInVault: 0, wasUnvaultedThisTurn: false };
+
+      if (cId === 'vial_stash' && gameState.vault.length < maxVaultSlots) {
+        gameState.vault.push(cardObj);
+        if (playerSprite) {
+          spawnPoisonBubbles(playerSprite.x, playerSprite.y - 10, 8);
+          spawnFloatingText(playerSprite.x, playerSprite.y - 25, 'VIAL STASH AUTO-VAULTED!', '#4ade80');
+        }
+      } else if (cId === 'assembly_blueprint' && gameState.vault.length === 0) {
+        gameState.vault.push(cardObj);
+        if (playerSprite) {
+          spawnParticles(playerSprite.x, playerSprite.y - 10, 10, { colors: [0xf59e0b, 0x38bdf8], speed: 2.5, shape: 'shard', life: 20 });
+          spawnFloatingText(playerSprite.x, playerSprite.y - 25, '⚙️ BLUEPRINT AUTO-VAULTED!', '#f59e0b');
+        }
+      } else {
+        gameState.hand.push(cardObj);
+      }
+    }
+  }
 }
 
 function reshuffleCategoryDiscard(cat) {
