@@ -127,9 +127,60 @@ function setupPixiApp() {
  if (turretGroup && !turretGroup.destroyed) {
  const turrets = gameState.turrets || [];
  const count = turrets.length;
- while (turretGroup.children.length < count) {
- const droneWrap = new PIXI.Container();
+ while (turretGroup.children.length > count) {
+ const rem = turretGroup.children[turretGroup.children.length - 1];
+ safeDestroyDisplayObject(rem);
+ }
+ for (let t = 0; t < count; t++) {
+ const tData = turrets[t];
+ const cType = (tData && tData.type) || 'auto_turret';
+ let drone = turretGroup.children[t];
+ if (!drone || drone.constructType !== cType) {
+ if (drone) safeDestroyDisplayObject(drone);
+ drone = new PIXI.Container();
+ drone.constructType = cType;
  const dG = new PIXI.Graphics();
+ if (cType === 'rail_turret') {
+ dG.lineStyle(2, 0x38bdf8, 1);
+ dG.beginFill(0x1e293b, 1);
+ dG.drawRect(-12, -8, 20, 16);
+ dG.endFill();
+ dG.beginFill(0x38bdf8, 1);
+ dG.drawRect(4, -3, 14, 6);
+ dG.endFill();
+ } else if (cType === 'flamethrower_turret') {
+ dG.lineStyle(2, 0xf97316, 1);
+ dG.beginFill(0x7c2d12, 1);
+ dG.drawRoundedRect(-11, -9, 20, 18, 4);
+ dG.endFill();
+ dG.beginFill(0xfef08a, 1);
+ dG.drawPolygon([8, -5, 16, -2, 16, 2, 8, 5]);
+ dG.endFill();
+ } else if (cType === 'aegis_barrier') {
+ dG.lineStyle(2.5, 0x38bdf8, 1);
+ dG.beginFill(0x0284c7, 0.45);
+ dG.drawPolygon([-6, -15, 8, -10, 11, 0, 8, 10, -6, 15]);
+ dG.endFill();
+ } else if (cType === 'tesla_coil') {
+ dG.lineStyle(2, 0xc084fc, 1);
+ dG.beginFill(0x312e81, 1);
+ dG.drawPolygon([-9, 11, 9, 11, 3, -11, -3, -11]);
+ dG.endFill();
+ dG.beginFill(0x38bdf8, 1);
+ dG.drawCircle(0, -13, 5);
+ dG.endFill();
+ } else if (cType === 'goliath_mech') {
+ dG.lineStyle(2.2, 0xfef08a, 1);
+ dG.beginFill(0xd97706, 1);
+ dG.drawRoundedRect(-14, -13, 26, 26, 5);
+ dG.endFill();
+ dG.beginFill(0x0f172a, 1);
+ dG.drawRect(2, -7, 10, 5);
+ dG.endFill();
+ dG.beginFill(0x94a3b8, 1);
+ dG.drawRect(8, 2, 12, 5);
+ dG.endFill();
+ } else {
  dG.lineStyle(2, 0xfef08a, 1);
  dG.beginFill(0xf59e0b, 1);
  dG.drawPolygon([0, -10, 11, 0, 0, 10, -11, 0]);
@@ -137,35 +188,32 @@ function setupPixiApp() {
  dG.beginFill(0x38bdf8, 1);
  dG.drawCircle(4, 0, 3);
  dG.endFill();
+ }
 
  const hpBarG = new PIXI.Graphics();
- hpBarG.y = -18;
-
- droneWrap.addChild(dG);
- droneWrap.addChild(hpBarG);
- droneWrap.hpBarG = hpBarG;
- droneWrap.lastHp = -1;
- turretGroup.addChild(droneWrap);
+ hpBarG.y = -20;
+ drone.addChild(dG);
+ drone.addChild(hpBarG);
+ drone.hpBarG = hpBarG;
+ drone.lastHp = -1;
+ if (t < turretGroup.children.length) {
+ turretGroup.addChildAt(drone, t);
+ } else {
+ turretGroup.addChild(drone);
  }
- while (turretGroup.children.length > count) {
- const rem = turretGroup.children[turretGroup.children.length - 1];
- safeDestroyDisplayObject(rem);
  }
- for (let t = 0; t < count; t++) {
- const drone = turretGroup.children[t];
- const tData = turrets[t];
  drone.x = 248 + (t % 2) * 18;
- drone.y = 84 + t * 44 + Math.sin(animTicker * 1.6 + t * 1.4) * 5;
+ drone.y = 82 + t * 44 + Math.sin(animTicker * 1.6 + t * 1.4) * 5;
 
  if (tData && drone.lastHp !== tData.hp && drone.hpBarG) {
  drone.lastHp = tData.hp;
  const ratio = Math.max(0, Math.min(1, tData.hp / (tData.maxHp || 10)));
  drone.hpBarG.clear();
  drone.hpBarG.beginFill(0x0f172a, 0.9);
- drone.hpBarG.drawRect(-14, 0, 28, 4);
+ drone.hpBarG.drawRect(-15, 0, 30, 4.5);
  drone.hpBarG.endFill();
  drone.hpBarG.beginFill(ratio > 0.5 ? 0x4ade80 : 0xf87171, 1);
- drone.hpBarG.drawRect(-13, 0.5, 26 * ratio, 3);
+ drone.hpBarG.drawRect(-14, 0.75, 28 * ratio, 3);
  drone.hpBarG.endFill();
  }
  }
@@ -1067,6 +1115,19 @@ function playCardVFX(cardId, src, tgt) {
  spawnParticles(tx, ty, 22, { colors: [0xf97316, 0xef4444, 0xfef08a], speed: 5.0, life: 24, shape: 'shard' });
  spawnShockwave(tx, ty, 65, 0xf97316, 4, 20);
  break;
+ case 'rail_turret_blueprint':
+ case 'inferno_turret_blueprint':
+ case 'aegis_barrier_blueprint':
+ case 'tesla_coil_blueprint':
+ case 'goliath_mech_blueprint':
+ case 'overdrive_core':
+ spawnShockwave(sx + 20, sy - 10, 74, 0xf59e0b, 4, 24);
+ spawnParticles(sx + 20, sy - 10, 18, { colors: [0xf59e0b, 0x38bdf8, 0xfef08a], speed: 3.6, shape: 'shard', life: 22 });
+ break;
+ case 'scrap_recycler':
+ case 'salvage_magnet':
+ spawnParticles(sx, sy, 14, { colors: [0xf59e0b, 0x94a3b8], speed: 3.0, shape: 'shard', life: 20 });
+ break;
  case 'capacitor_discharge':
  spawnLightningBolt(sx + 20, sy, tx, ty, 0xf59e0b, 0x38bdf8);
  spawnLightningBolt(sx + 20, sy - 8, tx, ty + 6, 0x38bdf8, 0xffffff);
@@ -1226,4 +1287,3 @@ function spawnFloatingText(x, y, text, color) {
  };
  appRef.ticker.add(tick);
 }
-
