@@ -416,24 +416,21 @@ window.proceedToNode = function() {
  }
 };
 
-// --- UNIFIED SHARED LOOTPOOL VICTORY CARD DRAFT (NO CLASS SWITCH / NO ARCHETYPE FILTER) ---
-function triggerCardDraftModal() {
- const modal = document.getElementById('modal-card-draft');
- const container = document.getElementById('card-draft-container');
- if (!modal || !container) return;
+// Filter to active class + Neutral cards (excluding Contraband)
+  const classPool = Object.keys(CARD_DATABASE).filter(cId => {
+    const c = CARD_DATABASE[cId];
+    return !c.isContraband && (c.classTag === gameState.classType || c.classTag === 'Neutral');
+  });
 
- // Every non-contraband card across ALL 7 classes + Neutral is in the same unified loot pool!
- const unifiedPool = Object.keys(CARD_DATABASE).filter(cId => !CARD_DATABASE[cId].isContraband);
-
- const choices = [];
- const used = new Set();
- while (choices.length < 3 && used.size < unifiedPool.length) {
- const pick = unifiedPool[Math.floor(Math.random() * unifiedPool.length)];
- if (!used.has(pick)) {
- used.add(pick);
- choices.push(pick);
- }
- }
+  const choices = [];
+  const used = new Set();
+  while (choices.length < 3 && used.size < classPool.length) {
+    const pick = classPool[Math.floor(Math.random() * classPool.length)];
+    if (!used.has(pick)) {
+      used.add(pick);
+      choices.push(pick);
+    }
+  }
 
  container.innerHTML = '';
  choices.forEach(cId => {
