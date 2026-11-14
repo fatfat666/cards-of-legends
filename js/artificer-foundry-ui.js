@@ -1,983 +1,936 @@
-// --- ARTIFICER FOUNDRY UI: CARD-UNLOCKED SCHEMATICS, TURRETS, MECHS & BUILDINGS ---
+// --- TURRET ATTACK VFX, MOB GOONS, BOUNTY ANIMATION & SIGNATURE CARD VFX (v0.8.3) ---
 (function () {
-  // 1. Inject Blueprint HUD & Modal Styles (MacBook 100dvh safe)
-  if (!document.getElementById('artificer-foundry-css')) {
-    const style = document.createElement('style');
-    style.id = 'artificer-foundry-css';
-    style.textContent = `
-      /* Compact top-left stage overlay bar (0px vertical layout push) */
-      #artificer-stage-rack {
-        position: absolute;
-        top: 10px;
-        left: 12px;
-        z-index: 18;
-        display: none;
-        align-items: center;
-        gap: 6px;
-        flex-wrap: wrap;
-        max-width: 62%;
-        pointer-events: auto;
-      }
-      #artificer-stage-rack.visible {
-        display: flex;
-      }
+  let turretLayer = null;
+  let goonLayer = null;
+  let bountyLayer = null;
+  let activeFxList = [];
+  let lastTurretSig = '';
+  let lastGoonSig = '';
+  let lastBountySig = 'none';
+  let lastCardPlayTimestamp = 0;
+  let lastTotalEnemyHp = null;
 
-      .af-btn-schematics {
-        background: linear-gradient(135deg, rgba(14, 116, 144, 0.92), rgba(30, 58, 138, 0.92));
-        border: 1px solid #38bdf8;
-        color: #e0f2fe;
-        font-size: 0.72rem;
-        font-weight: 800;
-        padding: 4px 10px;
-        border-radius: 8px;
-        cursor: pointer;
-        display: inline-flex;
-        align-items: center;
-        gap: 5px;
-        box-shadow: 0 2px 10px rgba(2, 132, 199, 0.35);
-        transition: transform 0.12s ease, box-shadow 0.12s ease;
-      }
-      .af-btn-schematics:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 14px rgba(56, 189, 248, 0.55);
-      }
-
-      /* Active Construct Chips */
-      .af-construct-chip {
-        background: rgba(15, 23, 42, 0.92);
-        border-radius: 8px;
-        padding: 3px 8px;
-        font-size: 0.70rem;
-        font-weight: 700;
-        color: #f8fafc;
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        cursor: pointer;
-        backdrop-filter: blur(4px);
-        transition: transform 0.12s ease;
-      }
-      .af-construct-chip:hover {
-        transform: translateY(-1px);
-      }
-      .af-construct-chip.type-turret {
-        border: 1px solid #38bdf8;
-        box-shadow: inset 0 0 8px rgba(56, 189, 248, 0.22);
-      }
-      .af-construct-chip.type-mech {
-        border: 1px solid #f59e0b;
-        box-shadow: inset 0 0 8px rgba(245, 158, 11, 0.24);
-      }
-      .af-construct-chip.type-building {
-        border: 1px solid #10b981;
-        box-shadow: inset 0 0 8px rgba(16, 185, 129, 0.24);
-      }
-      .af-construct-chip.overcharged {
-        box-shadow: 0 0 10px rgba(250, 204, 21, 0.55);
-      }
-
-      .af-chip-stat {
-        font-size: 0.66rem;
-        font-weight: 800;
-        padding: 1px 5px;
-        border-radius: 4px;
-        background: rgba(255, 255, 255, 0.08);
-      }
-      .type-turret .af-chip-stat { color: #7dd3fc; }
-      .type-mech .af-chip-stat { color: #fcd34d; }
-      .type-building .af-chip-stat { color: #6ee7b7; }
-
-      .af-mech-hp-bar {
-        width: 34px;
-        height: 4px;
-        background: rgba(255, 255, 255, 0.15);
-        border-radius: 99px;
-        overflow: hidden;
-      }
-      .af-mech-hp-fill {
-        height: 100%;
-        background: linear-gradient(90deg, #f59e0b, #fde047);
-      }
-
-      /* 6-Construct Foundry Schematics Modal */
-      #modal-artificer-schematics {
-        position: fixed;
-        inset: 0;
-        z-index: 120;
-        background: rgba(2, 6, 23, 0.82);
-        backdrop-filter: blur(6px);
-        display: none;
-        align-items: center;
-        justify-content: center;
-        padding: 14px;
-      }
-      #modal-artificer-schematics.open {
-        display: flex;
-      }
-
-      .af-blueprint-panel {
-        width: 100%;
-        max-width: 840px;
-        max-height: 88dvh;
-        overflow-y: auto;
-        background-color: #091326;
-        background-image:
-          linear-gradient(rgba(56, 189, 248, 0.07) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(56, 189, 248, 0.07) 1px, transparent 1px);
-        background-size: 20px 20px;
-        border: 1.5px solid #38bdf8;
-        border-radius: 14px;
-        padding: 16px 18px;
-        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.75), 0 0 25px rgba(14, 165, 233, 0.25);
-        color: #f1f5f9;
-      }
-
-      .af-panel-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        border-bottom: 1px solid rgba(56, 189, 248, 0.25);
-        padding-bottom: 10px;
-        margin-bottom: 8px;
-        gap: 8px;
-        flex-wrap: wrap;
-      }
-      .af-panel-title {
-        font-size: 1.02rem;
-        font-weight: 900;
-        letter-spacing: 0.04em;
-        color: #38bdf8;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-      }
-      .af-panel-subtitle {
-        font-size: 0.74rem;
-        color: #94a3b8;
-        margin-bottom: 10px;
-      }
-      .af-parts-pill {
-        background: rgba(245, 158, 11, 0.16);
-        border: 1px solid #f59e0b;
-        color: #fde68a;
-        font-size: 0.78rem;
-        font-weight: 800;
-        padding: 3px 10px;
-        border-radius: 999px;
-      }
-      .af-close-btn {
-        background: rgba(255, 255, 255, 0.08);
-        border: 1px solid rgba(148, 163, 184, 0.35);
-        color: #e2e8f0;
-        border-radius: 8px;
-        padding: 4px 10px;
-        font-weight: 800;
-        cursor: pointer;
-      }
-      .af-close-btn:hover {
-        background: rgba(239, 68, 68, 0.25);
-        border-color: #f87171;
-      }
-
-      /* Filter Tabs */
-      .af-filter-tabs {
-        display: flex;
-        gap: 6px;
-        margin-bottom: 12px;
-        flex-wrap: wrap;
-      }
-      .af-tab {
-        background: rgba(15, 23, 42, 0.85);
-        border: 1px solid rgba(148, 163, 184, 0.3);
-        color: #cbd5e1;
-        font-size: 0.74rem;
-        font-weight: 800;
-        padding: 4px 11px;
-        border-radius: 999px;
-        cursor: pointer;
-      }
-      .af-tab.active {
-        background: #0284c7;
-        border-color: #7dd3fc;
-        color: #ffffff;
-      }
-
-      /* 6-Construct Blueprint Grid */
-      .af-schematics-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-        gap: 10px;
-      }
-      .af-bp-card {
-        background: rgba(15, 23, 42, 0.94);
-        border-radius: 10px;
-        padding: 11px 12px;
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
-        gap: 7px;
-        position: relative;
-        transition: border-color 0.15s ease, opacity 0.15s ease;
-      }
-      .af-bp-card.archetype-turret { border: 1px solid rgba(56, 189, 248, 0.55); }
-      .af-bp-card.archetype-mech { border: 1px solid rgba(245, 158, 11, 0.6); }
-      .af-bp-card.archetype-building { border: 1px solid rgba(16, 185, 129, 0.6); }
-      .af-bp-card.locked {
-        border-color: rgba(100, 116, 139, 0.45);
-        background: rgba(9, 13, 24, 0.88);
-      }
-      .af-bp-card.locked .af-bp-desc,
-      .af-bp-card.locked .af-bp-overcharge {
-        opacity: 0.55;
-      }
-
-      .af-bp-top {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 6px;
-      }
-      .af-bp-badge {
-        font-size: 0.62rem;
-        font-weight: 900;
-        letter-spacing: 0.06em;
-        padding: 2px 6px;
-        border-radius: 4px;
-        text-transform: uppercase;
-      }
-      .archetype-turret .af-bp-badge { background: rgba(56, 189, 248, 0.18); color: #7dd3fc; }
-      .archetype-mech .af-bp-badge { background: rgba(245, 158, 11, 0.2); color: #fcd34d; }
-      .archetype-building .af-bp-badge { background: rgba(16, 185, 129, 0.2); color: #6ee7b7; }
-
-      .af-bp-cost {
-        font-size: 0.72rem;
-        font-weight: 800;
-        color: #fde047;
-      }
-      .af-bp-name {
-        font-size: 0.88rem;
-        font-weight: 900;
-        color: #f8fafc;
-        margin-top: 3px;
-      }
-
-      /* Card Form Unlock Requirement Pill */
-      .af-card-req {
-        font-size: 0.69rem;
-        font-weight: 700;
-        padding: 4px 8px;
-        border-radius: 6px;
-        display: flex;
-        align-items: center;
-        gap: 5px;
-      }
-      .af-card-req.req-locked {
-        background: rgba(239, 68, 68, 0.12);
-        border: 1px dashed rgba(248, 113, 113, 0.45);
-        color: #fca5a5;
-      }
-      .af-card-req.req-unlocked {
-        background: rgba(34, 197, 94, 0.14);
-        border: 1px solid rgba(74, 222, 128, 0.45);
-        color: #86efac;
-      }
-
-      .af-bp-desc {
-        font-size: 0.75rem;
-        color: #cbd5e1;
-        line-height: 1.38;
-      }
-      .af-bp-overcharge {
-        font-size: 0.70rem;
-        color: #fde047;
-        background: rgba(250, 204, 21, 0.09);
-        border-left: 2px solid #facc15;
-        padding: 4px 7px;
-        border-radius: 0 5px 5px 0;
-      }
-      .af-bp-footer {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-top: 2px;
-        gap: 6px;
-      }
-      .af-bp-status {
-        font-size: 0.68rem;
-        font-weight: 800;
-        color: #94a3b8;
-      }
-      .af-bp-status.deployed {
-        color: #4ade80;
-      }
-      .af-bp-craft-btn {
-        background: linear-gradient(135deg, #0284c7, #2563eb);
-        border: 1px solid #7dd3fc;
-        color: #fff;
-        font-size: 0.70rem;
-        font-weight: 800;
-        padding: 4px 9px;
-        border-radius: 6px;
-        cursor: pointer;
-        white-space: nowrap;
-      }
-      .af-bp-craft-btn:disabled {
-        background: rgba(30, 41, 59, 0.9);
-        border-color: rgba(100, 116, 139, 0.4);
-        color: #94a3b8;
-        cursor: not-allowed;
-      }
-    `;
-    document.head.appendChild(style);
+  function isMobBossClass() {
+    return typeof gameState !== 'undefined' && gameState &&
+      String(gameState.classType || '').toLowerCase() === 'mob boss';
   }
 
-  // =========================================================================
-  // 2. CANONICAL 6-CONSTRUCT FOUNDRY SCHEMATICS & CARD-FORM UNLOCK ENGINE
-  // =========================================================================
-  const DEFAULT_FOUNDRY_SCHEMATICS = [
-    {
-      id: 'auto_turret',
-      name: 'Auto-Turret Mk.I',
-      cardForm: 'Auto-Turret / Sentry Card',
-      keywords: ['auto-turret', 'auto turret', 'sentry', 'gatling', 'turret mk', 'deploy turret'],
-      archetype: 'turret',
-      icon: '🔫',
-      cost: 2,
-      desc: 'End of Turn: Fires high-velocity rounds for 6 DMG to front enemy.',
-      overcharge: 'Overcharge: Fires twice (2x 6 DMG) & applies 1 Vulnerable.'
-    },
-    {
-      id: 'tesla_coil',
-      name: 'Arc Tesla Coil',
-      cardForm: 'Arc Tesla / Shock Coil Card',
-      keywords: ['tesla', 'arc coil', 'shock turret', 'volt turret', 'lightning coil'],
-      archetype: 'turret',
-      icon: '⚡',
-      cost: 3,
-      desc: 'End of Turn: Zaps ALL enemies for 5 Shock DMG (ignores 50% Shield).',
-      overcharge: 'Overcharge: Chain lightning hits for 9 DMG & grants +1 Energy next turn.'
-    },
-    {
-      id: 'aegis_mech',
-      name: 'Aegis Vanguard Mech',
-      cardForm: 'Aegis / Vanguard Mech Card',
-      keywords: ['aegis mech', 'vanguard', 'guard mech', 'shield mech', 'defender mech', 'exo'],
-      archetype: 'mech',
-      icon: '🤖',
-      cost: 3,
-      hp: 24,
-      desc: 'Frontline Mech (24 HP): Intercepts 50% incoming attack DMG & slams for 5 DMG.',
-      overcharge: 'Overcharge: Gains +12 Armor Plating & retaliates for 10 DMG when hit.'
-    },
-    {
-      id: 'siege_walker',
-      name: 'Hellfire Siege Walker',
-      cardForm: 'Siege Walker / Hellfire Mech Card',
-      keywords: ['siege', 'walker', 'hellfire', 'mortar', 'juggernaut', 'titan mech'],
-      archetype: 'mech',
-      icon: '🦾',
-      cost: 4,
-      hp: 30,
-      desc: 'Heavy Mech (30 HP): Launches twin mortar shells for 11 AoE DMG each turn.',
-      overcharge: 'Overcharge: Triggers Siege Barrage immediately (18 DMG).'
-    },
-    {
-      id: 'scrap_foundry',
-      name: 'Automated Scrap Foundry',
-      cardForm: 'Scrap Foundry / Fabricator Card',
-      keywords: ['scrap foundry', 'foundry', 'fabricator', 'salvage bay', 'assembly', 'generator'],
-      archetype: 'building',
-      icon: '🏭',
-      cost: 2,
-      desc: 'Building: Generates +1 ⚙️ Part & +4 Armor Shield at the start of every turn.',
-      overcharge: 'Overcharge: Immediately fabricates +2 ⚙️ Parts & draws 1 card.'
-    },
-    {
-      id: 'aegis_pylon',
-      name: 'Chrono-Shield Pylon',
-      cardForm: 'Shield Pylon / Barrier Tower Card',
-      keywords: ['pylon', 'chrono-shield', 'barrier tower', 'shield tower', 'bunker', 'fortress'],
-      archetype: 'building',
-      icon: '🗼',
-      cost: 3,
-      desc: 'Building: Projects a barrier granting +8 Shield & 25% Retaliation Thorns.',
-      overcharge: 'Overcharge: Pulses +16 Shield to Hero & repairs all Mechs for +8 HP.'
+  function getStageBounds() {
+    const c = document.getElementById('pixi-container');
+    const w = (c && c.clientWidth) || (typeof pixiApp !== 'undefined' && pixiApp ? pixiApp.screen.width : 860);
+    const h = (c && c.clientHeight) || (typeof pixiApp !== 'undefined' && pixiApp ? pixiApp.screen.height : 220);
+    return { w, h };
+  }
+
+  function ensureCustomLayers() {
+    if (typeof pixiApp === 'undefined' || !pixiApp || !pixiApp.stage) return false;
+
+    if (!turretLayer || turretLayer.destroyed) {
+      turretLayer = new PIXI.Container();
+      turretLayer.zIndex = 15;
+      pixiApp.stage.addChild(turretLayer);
     }
-  ];
+    if (!goonLayer || goonLayer.destroyed) {
+      goonLayer = new PIXI.Container();
+      goonLayer.zIndex = 16;
+      pixiApp.stage.addChild(goonLayer);
+    }
+    if (!bountyLayer || bountyLayer.destroyed) {
+      bountyLayer = new PIXI.Container();
+      bountyLayer.zIndex = 25;
+      pixiApp.stage.addChild(bountyLayer);
+    }
 
-  function classifyConstruct(item) {
-    if (!item) return 'turret';
-    const raw = `${item.archetype || ''} ${item.category || ''} ${item.type || ''} ${item.name || ''}`.toLowerCase();
-    if (/mech|walker|golem|titan|exo|suit|vanguard|juggernaut/.test(raw)) return 'mech';
-    if (/building|foundry|pylon|generator|reactor|bay|forge|bunker|tower|wall/.test(raw)) return 'building';
-    return 'turret';
+    ensureExpansionTicker();
+    return true;
   }
 
-  function getActiveConstructs() {
+  function getHeroPos() {
+    const { w, h } = getStageBounds();
+    if (typeof playerContainer !== 'undefined' && playerContainer) {
+      return { x: playerContainer.x || w * 0.22, y: playerContainer.y || h * 0.62 };
+    }
+    return { x: Math.round(w * 0.22), y: Math.round(h * 0.62) };
+  }
+
+  function getEnemyPos(idx = 0) {
+    const { w, h } = getStageBounds();
+    if (typeof enemyEntities !== 'undefined' && Array.isArray(enemyEntities)) {
+      const alive = enemyEntities.filter(e => e && e.container && (!e.data || e.data.hp > 0));
+      const target = (enemyEntities[idx] && enemyEntities[idx].container && (!enemyEntities[idx].data || enemyEntities[idx].data.hp > 0))
+        ? enemyEntities[idx]
+        : alive[0];
+      if (target && target.container) {
+        return { x: target.container.x || w * 0.72, y: target.container.y || h * 0.60 };
+      }
+    }
+    return { x: Math.round(w * 0.72), y: Math.round(h * 0.60) };
+  }
+
+  function getAllAliveEnemyPositions() {
+    if (typeof enemyEntities !== 'undefined' && Array.isArray(enemyEntities)) {
+      const list = enemyEntities
+        .filter(e => e && e.container && (!e.data || e.data.hp > 0))
+        .map(e => ({ x: e.container.x, y: e.container.y }));
+      if (list.length > 0) return list;
+    }
+    return [getEnemyPos(0)];
+  }
+
+  // =========================================================================
+  // 1. ARTIFICER TURRET / MECH ATTACK VFX (ALL TYPES)
+  // =========================================================================
+  function getTurretList() {
     if (typeof gameState === 'undefined' || !gameState) return [];
     const list = gameState.turrets || gameState.constructs || gameState.artificerTurrets || [];
     return Array.isArray(list) ? list : [];
   }
 
-  // Gather every card currently in the player's run (deck, hand, piles, vault, sequence)
-  function collectPlayerCards() {
-    if (typeof gameState === 'undefined' || !gameState) return [];
-    const pools = [
-      gameState.deck,
-      gameState.hand,
-      gameState.drawPile,
-      gameState.discardPile,
-      gameState.vault,
-      gameState.sequence,
-      gameState.exhaustPile
-    ];
-    const all = [];
-    pools.forEach(pool => {
-      if (Array.isArray(pool)) {
-        pool.forEach(c => {
-          if (c) all.push(typeof c === 'string' ? { name: c } : c);
-        });
-      }
-    });
-    return all;
+  function getConstructOrigin(turretIdx = 0) {
+    if (Array.isArray(window.__artificerStageCoords) && window.__artificerStageCoords[turretIdx]) {
+      const c = window.__artificerStageCoords[turretIdx];
+      return { x: c.x + 14, y: c.y - 2 };
+    }
+    const hero = getHeroPos();
+    return { x: hero.x + 54 + (turretIdx % 3) * 35, y: hero.y - 50 };
   }
 
-  function matchCardToSchematic(card, bp) {
-    if (!card || !bp) return false;
-    const cName = String(card.name || card.title || '').toLowerCase();
-    const cId = String(card.id || '').toLowerCase();
-    const cDesc = String(card.desc || card.description || '').toLowerCase();
-    const cTags = `${card.type || ''} ${card.subType || ''} ${card.tag || ''}`.toLowerCase();
+  window.playTurretAttackVFX = function (construct, turretIdx = 0) {
+    if (!ensureCustomLayers()) return;
 
-    if (!cName && !cId) return false;
+    const raw = `${(construct && construct.id) || ''} ${(construct && construct.name) || ''} ${(construct && construct.archetype) || ''}`.toLowerCase();
+    // Passive buildings don't fire attacks
+    if (/foundry|pylon|generator|fabricator|bunker/.test(raw)) return;
 
-    // Direct ID or keyword match
-    if (cId && cId.includes(bp.id)) return true;
-    if (Array.isArray(bp.keywords) && bp.keywords.some(kw => cName.includes(kw) || cId.includes(kw))) {
-      return true;
-    }
+    const origin = getConstructOrigin(turretIdx);
+    const enemy = getEnemyPos(0);
 
-    // Fallback: match generic Artificer summon cards to their archetype slot
-    const isSummonCard = /deploy|summon|construct|build|turret|mech|walker|foundry|pylon|tower/.test(`${cName} ${cDesc} ${cTags}`);
-    if (isSummonCard) {
-      const cardArchetype = classifyConstruct({ name: cName, type: cTags });
-      if (bp.id === 'auto_turret' && cardArchetype === 'turret' && /turret|sentry|gun|cannon/.test(cName)) return true;
-      if (bp.id === 'aegis_mech' && cardArchetype === 'mech' && /mech|suit|golem/.test(cName)) return true;
-      if (bp.id === 'scrap_foundry' && cardArchetype === 'building' && /building|forge|bay|reactor/.test(cName)) return true;
-    }
+    // A. ARC TESLA COIL: Jagged chain lightning arcing across ALL enemies
+    if (/tesla|arc|shock|volt|lightning/.test(raw)) {
+      const targets = getAllAliveEnemyPositions();
+      let prevPt = origin;
 
-    return false;
-  }
+      targets.forEach((tPos, tIdx) => {
+        const bolt = new PIXI.Graphics();
+        bolt.lineStyle(4, 0x0284c7, 0.55);
+        bolt.moveTo(prevPt.x, prevPt.y);
 
-  // Scan deck & piles to unlock schematics whose Card Form the player has obtained
-  function syncSchematicUnlocksFromCards(allowToast = true) {
-    if (typeof gameState === 'undefined' || !gameState) return {};
-    if (gameState.classType !== 'Artificer' && getActiveConstructs().length === 0) return {};
-
-    if (!Array.isArray(gameState.unlockedSchematics)) {
-      gameState.unlockedSchematics = [];
-    }
-
-    const cards = collectPlayerCards();
-    const matchedCardByBp = {};
-    const newlyUnlocked = [];
-
-    DEFAULT_FOUNDRY_SCHEMATICS.forEach(bp => {
-      const foundCard = cards.find(c => matchCardToSchematic(c, bp));
-      if (foundCard) {
-        matchedCardByBp[bp.id] = foundCard.name || foundCard.title || bp.name;
-        if (!gameState.unlockedSchematics.includes(bp.id)) {
-          gameState.unlockedSchematics.push(bp.id);
-          newlyUnlocked.push(bp);
+        const segments = 6;
+        const pts = [];
+        for (let s = 1; s < segments; s++) {
+          const frac = s / segments;
+          const midX = prevPt.x + (tPos.x - prevPt.x) * frac + (Math.random() - 0.5) * 18;
+          const midY = prevPt.y + (tPos.y - prevPt.y) * frac + (Math.random() - 0.5) * 26;
+          pts.push({ x: midX, y: midY });
+          bolt.lineTo(midX, midY);
         }
-      }
-    });
+        bolt.lineTo(tPos.x, tPos.y);
 
-    // Notify only when a brand-new schematic card is drafted/gained mid-run
-    if (allowToast && gameState.__schematicsBootstrapped && newlyUnlocked.length > 0) {
-      newlyUnlocked.forEach(bp => {
-        if (typeof showToast === 'function') {
-          showToast(`📐 Schematic Unlocked: ${bp.name}!`, 'success');
-        }
-      });
-    }
+        // Bright white-cyan inner core
+        bolt.lineStyle(2, 0xe0f2fe, 1);
+        bolt.moveTo(prevPt.x, prevPt.y);
+        pts.forEach(p => bolt.lineTo(p.x, p.y));
+        bolt.lineTo(tPos.x, tPos.y);
 
-    if (cards.length > 0) {
-      gameState.__schematicsBootstrapped = true;
-    }
+        // Impact spark ring
+        bolt.beginFill(0x38bdf8, 0.85);
+        bolt.drawCircle(tPos.x, tPos.y, 8 + tIdx * 2);
+        bolt.endFill();
 
-    return matchedCardByBp;
-  }
-
-  function getPartsInfo() {
-    if (typeof gameState !== 'undefined' && gameState) {
-      if (typeof gameState.parts === 'number') {
-        return { current: gameState.parts, max: gameState.maxParts || 6 };
-      }
-      if (typeof gameState.scrapParts === 'number') {
-        return { current: gameState.scrapParts, max: gameState.maxScrapParts || 6 };
-      }
-    }
-    const el = document.getElementById('ui-parts');
-    if (el && el.textContent.includes('/')) {
-      const [c, m] = el.textContent.split('/').map(n => parseInt(n, 10) || 0);
-      return { current: c, max: m || 6 };
-    }
-    return { current: 0, max: 6 };
-  }
-
-  function getSchematicsRoster() {
-    const matchedCardMap = syncSchematicUnlocksFromCards(true);
-    const active = getActiveConstructs();
-    const unlockedIds = (typeof gameState !== 'undefined' && gameState && Array.isArray(gameState.unlockedSchematics))
-      ? gameState.unlockedSchematics
-      : [];
-
-    return DEFAULT_FOUNDRY_SCHEMATICS.map(bp => {
-      const unlocked = unlockedIds.includes(bp.id) || Boolean(matchedCardMap[bp.id]);
-      const deployedCount = active.filter(c =>
-        c && String(c.name || '').toLowerCase().includes(bp.name.split(' ')[0].toLowerCase())
-      ).length;
-
-      return Object.assign({}, bp, {
-        unlocked,
-        ownedCardName: matchedCardMap[bp.id] || null,
-        deployedCount
-      });
-    });
-  }
-
-  // =========================================================================
-  // 3. CUSTOM PIXIJS STAGE SILHOUETTES FOR TURRETS, MECHS & BUILDINGS
-  // =========================================================================
-  let foundryStageLayer = null;
-
-  window.renderArtificerTurrets = function () {
-    if (typeof pixiApp === 'undefined' || !pixiApp || !pixiApp.stage) return;
-
-    if (!foundryStageLayer || foundryStageLayer.destroyed) {
-      foundryStageLayer = new PIXI.Container();
-      foundryStageLayer.zIndex = 17;
-      pixiApp.stage.addChild(foundryStageLayer);
-    }
-    foundryStageLayer.removeChildren();
-
-    const constructs = getActiveConstructs();
-    if (!constructs.length) return;
-
-    const cEl = document.getElementById('pixi-container');
-    const w = (cEl && cEl.clientWidth) || pixiApp.screen.width || 860;
-    const h = (cEl && cEl.clientHeight) || pixiApp.screen.height || 220;
-    const heroX = (typeof playerContainer !== 'undefined' && playerContainer && playerContainer.x) ? playerContainer.x : Math.round(w * 0.22);
-    const heroY = (typeof playerContainer !== 'undefined' && playerContainer && playerContainer.y) ? playerContainer.y : Math.round(h * 0.62);
-
-    let turretIdx = 0;
-    let mechIdx = 0;
-    let buildingIdx = 0;
-
-    constructs.forEach((item, idx) => {
-      const kind = classifyConstruct(item);
-      const isOvercharged = Boolean(item && (item.overcharged || item.upgraded || (item.level && item.level > 1)));
-      const rig = new PIXI.Container();
-      rig.__phase = idx * 0.9;
-
-      if (kind === 'mech') {
-        rig.x = Math.min(w * 0.48, Math.round(heroX + 68 + mechIdx * 42));
-        rig.y = Math.min(h - 24, Math.round(heroY + 6 - mechIdx * 16));
-        rig.__baseY = rig.y;
-        rig.__bobAmp = 1.5;
-
-        const armorColor = isOvercharged ? 0xfacc15 : 0xf59e0b;
-        const g = new PIXI.Graphics();
-
-        g.beginFill(0x000000, 0.45);
-        g.drawEllipse(0, 22, 16, 5);
-        g.endFill();
-
-        g.lineStyle(3.5, 0x94a3b8, 1);
-        g.moveTo(-7, 6); g.lineTo(-9, 20);
-        g.moveTo(7, 6);  g.lineTo(9, 20);
-
-        g.beginFill(0x1e293b, 0.98);
-        g.lineStyle(2.2, armorColor, 1);
-        g.drawRoundedRect(-14, -14, 28, 22, 5);
-        g.endFill();
-
-        g.beginFill(armorColor, 0.9);
-        g.drawRoundedRect(-18, -16, 8, 10, 3);
-        g.drawRoundedRect(10, -16, 8, 10, 3);
-        g.endFill();
-
-        g.beginFill(0x38bdf8, 1);
-        g.drawRect(-6, -9, 14, 4);
-        g.endFill();
-        rig.addChild(g);
-
-        if (typeof item.hp === 'number') {
-          const maxHp = item.maxHp || Math.max(item.hp, 24);
-          const ratio = Math.max(0, Math.min(1, item.hp / maxHp));
-          const hpBar = new PIXI.Graphics();
-          hpBar.beginFill(0x0f172a, 0.9);
-          hpBar.drawRect(-14, 25, 28, 4);
-          hpBar.beginFill(0xf59e0b, 1);
-          hpBar.drawRect(-14, 25, 28 * ratio, 4);
-          hpBar.endFill();
-          rig.addChild(hpBar);
-        }
-
-        mechIdx++;
-      } else if (kind === 'building') {
-        rig.x = Math.max(28, Math.round(heroX - 48 - buildingIdx * 34));
-        rig.y = Math.min(h - 24, Math.round(heroY + 4 - buildingIdx * 24));
-        rig.__baseY = rig.y;
-        rig.__bobAmp = 0;
-
-        const bColor = isOvercharged ? 0x34d399 : 0x10b981;
-        const g = new PIXI.Graphics();
-
-        g.beginFill(0x064e3b, 0.95);
-        g.lineStyle(2, bColor, 1);
-        g.drawPolygon([-14, 18, -10, -14, 10, -14, 14, 18]);
-        g.endFill();
-
-        g.beginFill(0xa7f3d0, 1);
-        g.drawPolygon([0, -24, 6, -14, 0, -6, -6, -14]);
-        g.endFill();
-
-        g.lineStyle(1.5, bColor, 0.45);
-        g.drawEllipse(0, 18, 20, 6);
-        rig.addChild(g);
-
-        buildingIdx++;
-      } else {
-        rig.x = Math.min(w * 0.46, Math.round(heroX + 46 + (turretIdx % 3) * 40));
-        rig.y = Math.max(36, Math.round(heroY - 54 - Math.floor(turretIdx / 3) * 34));
-        rig.__baseY = rig.y;
-        rig.__bobAmp = 2.8;
-
-        const tColor = isOvercharged ? 0xfacc15 : 0x38bdf8;
-        const g = new PIXI.Graphics();
-
-        g.beginFill(tColor, 0.35);
-        g.drawEllipse(0, 11, 10, 3.5);
-        g.endFill();
-
-        g.beginFill(0x0f172a, 0.96);
-        g.lineStyle(2, tColor, 1);
-        g.drawRoundedRect(-12, -8, 24, 14, 6);
-        g.endFill();
-
-        g.beginFill(tColor, 1);
-        g.drawRect(10, -5, 11, 3);
-        g.drawRect(10, 0, 9, 3);
-        g.endFill();
-
-        g.beginFill(0xe0f2fe, 1);
-        g.drawCircle(-2, -1, 3.5);
-        g.endFill();
-        rig.addChild(g);
-
-        turretIdx++;
-      }
-
-      const labelColor = kind === 'mech' ? '#fcd34d' : (kind === 'building' ? '#6ee7b7' : '#7dd3fc');
-      const shortName = item && item.name ? String(item.name).split(' ')[0] : kind.toUpperCase();
-      const tag = new PIXI.Text(shortName, {
-        fontFamily: 'system-ui, sans-serif',
-        fontSize: 9,
-        fontWeight: '800',
-        fill: labelColor,
-        stroke: '#020617',
-        strokeThickness: 3
-      });
-      tag.anchor.set(0.5);
-      tag.y = kind === 'building' ? -31 : -22;
-      rig.addChild(tag);
-
-      foundryStageLayer.addChild(rig);
-    });
-
-    if (!pixiApp.__foundryBobTicker) {
-      pixiApp.__foundryBobTicker = true;
-      pixiApp.ticker.add(() => {
-        if (!foundryStageLayer || !foundryStageLayer.children) return;
-        const t = performance.now() * 0.004;
-        foundryStageLayer.children.forEach(c => {
-          if (c.__bobAmp && typeof c.__baseY === 'number') {
-            c.y = c.__baseY + Math.sin(t + (c.__phase || 0)) * c.__bobAmp;
+        bountyLayer.addChild(bolt);
+        activeFxList.push({
+          obj: bolt,
+          life: 0,
+          maxLife: 18,
+          update(p) {
+            bolt.alpha = 1 - p;
           }
         });
+
+        prevPt = tPos;
       });
-    }
-  };
-
-  // =========================================================================
-  // 4. DOM STAGE RACK & 6-CONSTRUCT SCHEMATICS BLUEPRINT MODAL
-  // =========================================================================
-  let currentFilter = 'all';
-
-  function ensureFoundryDOM() {
-    const stageWrapper = document.querySelector('#screen-battle .battle-stage-wrapper');
-    if (stageWrapper && !document.getElementById('artificer-stage-rack')) {
-      const rack = document.createElement('div');
-      rack.id = 'artificer-stage-rack';
-      stageWrapper.appendChild(rack);
-    }
-
-    if (!document.getElementById('modal-artificer-schematics')) {
-      const modal = document.createElement('div');
-      modal.id = 'modal-artificer-schematics';
-      modal.innerHTML = `
-        <div class="af-blueprint-panel" role="dialog" aria-label="Artificer Foundry Schematics">
-          <div class="af-panel-header">
-            <div class="af-panel-title">📐 ARTIFICER FOUNDRY — 6-CONSTRUCT SCHEMATICS</div>
-            <div style="display:flex;align-items:center;gap:8px;">
-              <span class="af-parts-pill" id="af-modal-parts">⚙️ Parts: 0/6</span>
-              <button class="af-close-btn" id="af-close-modal">✕ Close</button>
-            </div>
-          </div>
-          <div class="af-panel-subtitle">
-            Obtain a construct's <strong>Card Form</strong> (via Starter Deck, Card Rewards, or Shop) to permanently unlock its Foundry Schematic for this run.
-          </div>
-          <div class="af-filter-tabs" id="af-filter-tabs">
-            <button class="af-tab active" data-filter="all">All Blueprints (6)</button>
-            <button class="af-tab" data-filter="turret">🔫 Turrets</button>
-            <button class="af-tab" data-filter="mech">🤖 Mechs</button>
-            <button class="af-tab" data-filter="building">🏭 Buildings</button>
-          </div>
-          <div class="af-schematics-grid" id="af-schematics-grid"></div>
-        </div>
-      `;
-      document.body.appendChild(modal);
-
-      modal.addEventListener('click', (e) => {
-        if (e.target === modal) closeSchematicsModal();
-      });
-      document.getElementById('af-close-modal').addEventListener('click', closeSchematicsModal);
-
-      document.getElementById('af-filter-tabs').addEventListener('click', (e) => {
-        const btn = e.target.closest('.af-tab');
-        if (!btn) return;
-        currentFilter = btn.dataset.filter || 'all';
-        document.querySelectorAll('#af-filter-tabs .af-tab').forEach(t => t.classList.remove('active'));
-        btn.classList.add('active');
-        renderSchematicsModalGrid();
-      });
-    }
-
-    const partsBadge = document.getElementById('ui-parts-badge');
-    if (partsBadge && !partsBadge.__afBound) {
-      partsBadge.__afBound = true;
-      partsBadge.style.cursor = 'pointer';
-      partsBadge.title = 'Open 6-Construct Foundry Schematics';
-      partsBadge.addEventListener('click', openSchematicsModal);
-    }
-  }
-
-  function openSchematicsModal() {
-    ensureFoundryDOM();
-    renderSchematicsModalGrid();
-    document.getElementById('modal-artificer-schematics').classList.add('open');
-  }
-
-  function closeSchematicsModal() {
-    const m = document.getElementById('modal-artificer-schematics');
-    if (m) m.classList.remove('open');
-  }
-
-  function tryFabricateSchematic(bp) {
-    if (!bp || !bp.unlocked) return;
-    const parts = getPartsInfo();
-    if (parts.current < bp.cost) return;
-
-    if (typeof window.fabricateConstruct === 'function') {
-      window.fabricateConstruct(bp.id);
-    } else if (typeof window.deploySchematic === 'function') {
-      window.deploySchematic(bp.id);
-    } else if (typeof gameState !== 'undefined' && gameState) {
-      if (typeof gameState.parts === 'number') gameState.parts -= bp.cost;
-      else if (typeof gameState.scrapParts === 'number') gameState.scrapParts -= bp.cost;
-
-      if (!Array.isArray(gameState.turrets)) gameState.turrets = [];
-      gameState.turrets.push({
-        id: bp.id,
-        name: bp.name,
-        archetype: bp.archetype,
-        hp: bp.hp || undefined,
-        maxHp: bp.hp || undefined,
-        dmg: bp.archetype === 'turret' ? 6 : (bp.archetype === 'mech' ? 5 : 0),
-        shield: bp.archetype === 'building' ? 4 : 0
-      });
-      if (typeof updateBattleUI === 'function') updateBattleUI();
-    }
-
-    window.renderArtificerTurrets();
-    updateArtificerFoundryHUD();
-    renderSchematicsModalGrid();
-  }
-
-  function renderSchematicsModalGrid() {
-    const grid = document.getElementById('af-schematics-grid');
-    if (!grid) return;
-
-    const parts = getPartsInfo();
-    const partsPill = document.getElementById('af-modal-parts');
-    if (partsPill) partsPill.textContent = `⚙️ Parts: ${parts.current}/${parts.max}`;
-
-    const roster = getSchematicsRoster().filter(bp =>
-      currentFilter === 'all' || bp.archetype === currentFilter
-    );
-
-    const inBattle = typeof gameState !== 'undefined' && gameState && gameState.screen === 'BATTLE';
-
-    grid.innerHTML = roster.map(bp => {
-      const canCraft = inBattle && bp.unlocked && parts.current >= bp.cost;
-      const btnLabel = !bp.unlocked
-        ? '🔒 Need Card Form'
-        : (!inBattle
-            ? 'In Battle Only'
-            : (parts.current < bp.cost ? `Need ${bp.cost} ⚙️` : `🔨 Build (${bp.cost} ⚙️)`));
-
-      const reqHtml = bp.unlocked
-        ? `<div class="af-card-req req-unlocked">✅ Card Form Acquired${bp.ownedCardName ? `: <strong>${bp.ownedCardName}</strong>` : ''}</div>`
-        : `<div class="af-card-req req-locked">🔒 Locked — Obtain <strong>${bp.cardForm}</strong></div>`;
-
-      return `
-        <div class="af-bp-card archetype-${bp.archetype} ${bp.unlocked ? '' : 'locked'}">
-          <div>
-            <div class="af-bp-top">
-              <span class="af-bp-badge">${bp.icon} ${bp.archetype}</span>
-              <span class="af-bp-cost">⚙️ ${bp.cost} Parts</span>
-            </div>
-            <div class="af-bp-name">${bp.name}</div>
-          </div>
-          ${reqHtml}
-          <div class="af-bp-desc">${bp.desc}</div>
-          <div class="af-bp-overcharge">⚡ ${bp.overcharge}</div>
-          <div class="af-bp-footer">
-            <span class="af-bp-status ${bp.deployedCount > 0 ? 'deployed' : ''}">
-              ${!bp.unlocked ? '🔒 Blueprint Locked' : (bp.deployedCount > 0 ? `● ${bp.deployedCount} Active on Field` : '○ Ready to Fabricate')}
-            </span>
-            <button class="af-bp-craft-btn" data-bp-id="${bp.id}" ${canCraft ? '' : 'disabled'}>
-              ${btnLabel}
-            </button>
-          </div>
-        </div>
-      `;
-    }).join('');
-
-    grid.querySelectorAll('.af-bp-craft-btn:not([disabled])').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const bp = roster.find(item => item.id === btn.dataset.bpId);
-        if (bp) tryFabricateSchematic(bp);
-      });
-    });
-  }
-
-  function updateArtificerFoundryHUD() {
-    ensureFoundryDOM();
-    const rack = document.getElementById('artificer-stage-rack');
-    if (!rack) return;
-
-    const isArtificer = typeof gameState !== 'undefined' && gameState &&
-      (gameState.classType === 'Artificer' || getActiveConstructs().length > 0);
-
-    if (!isArtificer) {
-      rack.classList.remove('visible');
       return;
     }
 
-    rack.classList.add('visible');
-    const constructs = getActiveConstructs();
-    const roster = getSchematicsRoster();
-    const unlockedCount = roster.filter(r => r.unlocked).length;
+    // B. RAILGUN / PLASMA / LASER TURRET: High-energy beam + muzzle shockwave
+    if (/rail|laser|plasma|sniper|beam/.test(raw)) {
+      const beam = new PIXI.Graphics();
+      beam.lineStyle(9, 0xa855f7, 0.45);
+      beam.moveTo(origin.x, origin.y);
+      beam.lineTo(enemy.x, enemy.y);
+      beam.lineStyle(3, 0xf3e8ff, 1);
+      beam.moveTo(origin.x, origin.y);
+      beam.lineTo(enemy.x, enemy.y);
+      beam.beginFill(0xc084fc, 0.9);
+      beam.drawCircle(enemy.x, enemy.y, 12);
+      beam.endFill();
+      bountyLayer.addChild(beam);
 
-    let html = `
-      <button class="af-btn-schematics" id="af-open-rack-btn" title="View 6-Construct Foundry Schematics">
-        📐 Schematics (${unlockedCount}/6)
-      </button>
-    `;
+      activeFxList.push({
+        obj: beam,
+        life: 0,
+        maxLife: 18,
+        update(p) {
+          beam.alpha = 1 - p;
+        }
+      });
+      return;
+    }
 
-    constructs.forEach((c) => {
-      const kind = classifyConstruct(c);
-      const isOvercharged = Boolean(c && (c.overcharged || c.upgraded || (c.level && c.level > 1)));
-      const icon = kind === 'mech' ? '🤖' : (kind === 'building' ? '🏭' : '🔫');
-      const name = c && c.name ? c.name : kind.toUpperCase();
+    // C. SIEGE WALKER / MORTAR / ROCKET POD: Parabolic explosive shell + AoE blast
+    if (/siege|walker|mortar|rocket|missile|hellfire|artillery/.test(raw)) {
+      const shell = new PIXI.Graphics();
+      shell.beginFill(0xf97316, 1);
+      shell.lineStyle(1.5, 0xfef08a, 1);
+      shell.drawCircle(0, 0, 5);
+      shell.endFill();
+      shell.x = origin.x;
+      shell.y = origin.y - 8;
+      bountyLayer.addChild(shell);
 
-      let statBadge = '';
-      if (kind === 'mech') {
-        const hp = typeof c.hp === 'number' ? c.hp : 24;
-        const maxHp = c.maxHp || Math.max(hp, 24);
-        const pct = Math.max(0, Math.min(100, Math.round((hp / maxHp) * 100)));
-        statBadge = `
-          <span class="af-chip-stat">${hp}♥</span>
-          <span class="af-mech-hp-bar"><span class="af-mech-hp-fill" style="width:${pct}%"></span></span>
-        `;
-      } else if (kind === 'building') {
-        const yieldTxt = c.shield ? `+${c.shield}🛡️` : '+1⚙️/t';
-        statBadge = `<span class="af-chip-stat">${yieldTxt}</span>`;
-      } else {
-        const dmg = c.dmg || c.damage || 6;
-        statBadge = `<span class="af-chip-stat">${dmg} DMG</span>`;
+      activeFxList.push({
+        obj: shell,
+        life: 0,
+        maxLife: 22,
+        update(p) {
+          shell.x = origin.x + (enemy.x - origin.x) * p;
+          shell.y = (origin.y - 8) + (enemy.y - (origin.y - 8)) * p - Math.sin(p * Math.PI) * 58;
+          if (p >= 0.95) {
+            // Spawn explosion ring on touchdown
+            const boom = new PIXI.Graphics();
+            boom.beginFill(0xf97316, 0.55);
+            boom.lineStyle(3, 0xfacc15, 1);
+            boom.drawCircle(0, 0, 22);
+            boom.endFill();
+            boom.x = enemy.x;
+            boom.y = enemy.y;
+            bountyLayer.addChild(boom);
+            activeFxList.push({
+              obj: boom,
+              life: 0,
+              maxLife: 16,
+              update(bp) {
+                boom.scale.set(0.7 + bp * 0.9);
+                boom.alpha = 1 - bp;
+              }
+            });
+          }
+        }
+      });
+      return;
+    }
+
+    // D. CRYO / FROST TURRET: Crystalline ice shards + frost mist burst
+    if (/cryo|frost|ice|freeze|chill/.test(raw)) {
+      for (let i = 0; i < 4; i++) {
+        setTimeout(() => {
+          if (!ensureCustomLayers()) return;
+          const shard = new PIXI.Graphics();
+          shard.beginFill(0x7dd3fc, 0.95);
+          shard.lineStyle(1, 0xffffff, 1);
+          shard.drawPolygon([-8, 0, 0, -4, 10, 0, 0, 4]);
+          shard.endFill();
+          shard.x = origin.x;
+          shard.y = origin.y + (i - 1.5) * 6;
+          bountyLayer.addChild(shard);
+
+          activeFxList.push({
+            obj: shard,
+            life: 0,
+            maxLife: 14,
+            update(p) {
+              shard.x = origin.x + (enemy.x - origin.x) * p;
+              shard.y = origin.y + (enemy.y - origin.y) * p;
+            }
+          });
+        }, i * 45);
+      }
+      return;
+    }
+
+    // E. FLAME / INFERNO TURRET: Fireball stream
+    if (/flame|fire|inferno|pyro|burn/.test(raw)) {
+      for (let i = 0; i < 5; i++) {
+        setTimeout(() => {
+          if (!ensureCustomLayers()) return;
+          const ember = new PIXI.Graphics();
+          ember.beginFill(i % 2 === 0 ? 0xf97316 : 0xfacc15, 0.9);
+          ember.drawCircle(0, 0, 5 + i);
+          ember.endFill();
+          ember.x = origin.x;
+          ember.y = origin.y;
+          bountyLayer.addChild(ember);
+
+          const spreadY = (Math.random() - 0.5) * 26;
+          activeFxList.push({
+            obj: ember,
+            life: 0,
+            maxLife: 15,
+            update(p) {
+              ember.x = origin.x + (enemy.x - origin.x) * p;
+              ember.y = origin.y + (enemy.y + spreadY - origin.y) * p;
+              ember.scale.set(0.8 + p * 0.8);
+              ember.alpha = 1 - p * 0.6;
+            }
+          });
+        }, i * 40);
+      }
+      return;
+    }
+
+    // F. AUTO-TURRET / GATLING / AEGIS MECH SLAM: Rapid tracer burst from turret barrel
+    for (let i = 0; i < 3; i++) {
+      setTimeout(() => {
+        if (!ensureCustomLayers()) return;
+        const tracer = new PIXI.Graphics();
+        tracer.beginFill(0x38bdf8, 1);
+        tracer.drawRoundedRect(-10, -2, 20, 4, 2);
+        tracer.endFill();
+        tracer.x = origin.x;
+        tracer.y = origin.y + (i - 1) * 5;
+        bountyLayer.addChild(tracer);
+
+        activeFxList.push({
+          obj: tracer,
+          life: 0,
+          maxLife: 11,
+          update(p) {
+            tracer.x = origin.x + (enemy.x - origin.x) * p;
+            tracer.y = origin.y + (enemy.y - origin.y) * p;
+          }
+        });
+      }, i * 55);
+    }
+  };
+
+  window.triggerAllTurretAttackVFX = function () {
+    const constructs = getTurretList();
+    if (!constructs.length) return;
+    constructs.forEach((c, idx) => {
+      setTimeout(() => window.playTurretAttackVFX(c, idx), idx * 120);
+    });
+  };
+
+  // Fallback turret renderer if artificer-foundry-ui.js isn't loaded
+  if (typeof window.renderArtificerTurrets !== 'function') {
+    window.renderArtificerTurrets = function () {
+      if (!ensureCustomLayers()) return;
+      turretLayer.removeChildren();
+      const turrets = getTurretList();
+      if (!turrets.length) return;
+      const { w, h } = getStageBounds();
+      const hero = getHeroPos();
+
+      turrets.forEach((t, idx) => {
+        const pod = new PIXI.Container();
+        pod.x = Math.min(w * 0.46, Math.round(hero.x + 52 + (idx % 3) * 42));
+        pod.y = Math.max(32, Math.round(hero.y - 58 - Math.floor(idx / 3) * 38));
+        pod.__baseY = pod.y;
+        pod.__phase = idx * 1.1;
+
+        const body = new PIXI.Graphics();
+        body.beginFill(0x0f172a, 0.95);
+        body.lineStyle(2, 0x38bdf8, 1);
+        body.drawRoundedRect(-13, -10, 26, 16, 6);
+        body.endFill();
+        pod.addChild(body);
+        turretLayer.addChild(pod);
+      });
+    };
+  }
+
+  // =========================================================================
+  // 2. MOB BOSS GOONS / ENFORCERS RENDERER
+  // =========================================================================
+  function getGoonList() {
+    if (typeof gameState === 'undefined' || !gameState) return [];
+    const list = gameState.enforcers || gameState.goons || gameState.minions || gameState.mobEnforcers || [];
+    return Array.isArray(list) ? list : [];
+  }
+
+  window.renderMobEnforcers = function () {
+    if (!ensureCustomLayers()) return;
+    goonLayer.removeChildren();
+
+    const goons = getGoonList();
+    if (!goons.length) return;
+
+    const { w, h } = getStageBounds();
+    const hero = getHeroPos();
+
+    goons.forEach((g, idx) => {
+      if (g && typeof g.hp === 'number' && g.hp <= 0) return;
+
+      const unit = new PIXI.Container();
+      const offsetX = 48 + (idx % 2) * 34;
+      const offsetY = 18 + idx * 24 - (goons.length * 10);
+
+      unit.x = Math.min(w * 0.45, Math.round(hero.x + offsetX));
+      unit.y = Math.min(h - 24, Math.max(44, Math.round(hero.y + offsetY)));
+      unit.__baseY = unit.y;
+      unit.__phase = idx * 0.9;
+
+      const isBruiser = g && /bruiser|heavy|muscle|hitman/i.test(String(g.name || g.role || ''));
+      const accent = isBruiser ? 0xf97316 : 0xa855f7;
+
+      const shadow = new PIXI.Graphics();
+      shadow.beginFill(0x000000, 0.45);
+      shadow.drawEllipse(0, 18, 13, 4);
+      shadow.endFill();
+      unit.addChild(shadow);
+
+      const coat = new PIXI.Graphics();
+      coat.beginFill(0x1e1b4b, 0.96);
+      coat.lineStyle(2, accent, 1);
+      coat.drawPolygon([-10, 16, -7, -6, 7, -6, 10, 16]);
+      coat.endFill();
+
+      coat.beginFill(0xe2e8f0, 1);
+      coat.drawCircle(0, -11, 5.5);
+      coat.endFill();
+
+      coat.beginFill(0x0f172a, 1);
+      coat.lineStyle(1.5, accent, 1);
+      coat.drawRect(-9, -16, 18, 3);
+      coat.drawRect(-5, -21, 10, 5);
+      coat.endFill();
+
+      coat.beginFill(0x94a3b8, 1);
+      coat.drawRect(4, -2, 13, 3.5);
+      coat.endFill();
+      unit.addChild(coat);
+
+      const hpStr = (g && typeof g.hp === 'number') ? ` ${g.hp}♥` : '';
+      const rawName = (g && g.name) ? String(g.name).split(' ')[0] : 'Goon';
+      const label = new PIXI.Text(`${rawName}${hpStr}`, {
+        fontFamily: 'system-ui, sans-serif',
+        fontSize: 9.5,
+        fontWeight: '800',
+        fill: '#f3e8ff',
+        stroke: '#090d16',
+        strokeThickness: 3
+      });
+      label.anchor.set(0.5);
+      label.y = -28;
+      unit.addChild(label);
+
+      goonLayer.addChild(unit);
+    });
+  };
+
+  // =========================================================================
+  // 3. MOB BOSS BOUNTY LOCK-ON & CASH-OUT ANIMATION (MOB BOSS ONLY)
+  // =========================================================================
+  function getBountiedEnemyIndex() {
+    if (!isMobBossClass() || !Array.isArray(gameState.enemies)) return -1;
+
+    if (typeof gameState.bountyTargetIndex === 'number' && gameState.bountyTargetIndex >= 0) {
+      const target = gameState.enemies[gameState.bountyTargetIndex];
+      if (target && target.hp > 0) return gameState.bountyTargetIndex;
+    }
+
+    return gameState.enemies.findIndex(e =>
+      e && e.hp > 0 && (e.hasBounty || (e.statuses && e.statuses.bounty))
+    );
+  }
+
+  window.playBountyVFX = function (enemyIdx = 0, mode = 'mark') {
+    if (!isMobBossClass() || !ensureCustomLayers()) return;
+    const target = getEnemyPos(enemyIdx);
+
+    if (mode === 'collect') {
+      const hero = getHeroPos();
+      for (let i = 0; i < 16; i++) {
+        const coin = new PIXI.Graphics();
+        const isBill = i % 3 === 0;
+        if (isBill) {
+          coin.beginFill(0x22c55e, 1);
+          coin.lineStyle(1, 0xbbf7d0, 1);
+          coin.drawRect(-6, -3, 12, 6);
+        } else {
+          coin.beginFill(0xfacc15, 1);
+          coin.lineStyle(1.5, 0xfef08a, 1);
+          coin.drawCircle(0, 0, 5);
+        }
+        coin.endFill();
+        coin.x = target.x + (Math.random() - 0.5) * 30;
+        coin.y = target.y + (Math.random() - 0.5) * 30;
+        bountyLayer.addChild(coin);
+
+        const burstVx = (Math.random() - 0.5) * 6;
+        const burstVy = -3 - Math.random() * 4;
+        activeFxList.push({
+          obj: coin,
+          life: 0,
+          maxLife: 48 + i * 2,
+          update(p) {
+            if (p < 0.35) {
+              coin.x += burstVx;
+              coin.y += burstVy;
+            } else {
+              coin.x += (hero.x - coin.x) * 0.16;
+              coin.y += (hero.y - coin.y) * 0.16;
+            }
+            coin.rotation += 0.25;
+            if (p > 0.85) coin.alpha = 1 - (p - 0.85) / 0.15;
+          }
+        });
       }
 
-      html += `
-        <div class="af-construct-chip type-${kind} ${isOvercharged ? 'overcharged' : ''}" title="Click to inspect Foundry Blueprints">
-          <span>${icon} ${name}${isOvercharged ? ' ⚡' : ''}</span>
-          ${statBadge}
-        </div>
-      `;
+      if (typeof window.spawnFloatingNumber === 'function') {
+        const heroObj = (typeof playerContainer !== 'undefined' && playerContainer) ? playerContainer : null;
+        if (heroObj) window.spawnFloatingNumber(heroObj, '💰 BOUNTY CASHED!', 'crit');
+      }
+      return;
+    }
+
+    const rig = new PIXI.Container();
+    rig.x = target.x;
+    rig.y = target.y;
+    rig.scale.set(2.1);
+    rig.alpha = 0;
+
+    const ring = new PIXI.Graphics();
+    ring.lineStyle(3, 0xfacc15, 0.95);
+    ring.drawCircle(0, 0, 32);
+    ring.lineStyle(2, 0xef4444, 0.95);
+    ring.drawCircle(0, 0, 22);
+    ring.moveTo(-40, 0); ring.lineTo(-16, 0);
+    ring.moveTo(16, 0);  ring.lineTo(40, 0);
+    ring.moveTo(0, -40); ring.lineTo(0, -16);
+    ring.moveTo(0, 16);  ring.lineTo(0, 40);
+    rig.addChild(ring);
+
+    const badge = new PIXI.Text('🎯 BOUNTY', {
+      fontFamily: 'system-ui, sans-serif',
+      fontSize: 11,
+      fontWeight: '900',
+      fill: '#facc15',
+      stroke: '#450a0a',
+      strokeThickness: 4
     });
+    badge.anchor.set(0.5);
+    badge.y = -44;
+    rig.addChild(badge);
 
-    rack.innerHTML = html;
+    bountyLayer.addChild(rig);
 
-    const openBtn = document.getElementById('af-open-rack-btn');
-    if (openBtn) openBtn.addEventListener('click', openSchematicsModal);
-    rack.querySelectorAll('.af-construct-chip').forEach(chip => {
-      chip.addEventListener('click', openSchematicsModal);
+    activeFxList.push({
+      obj: rig,
+      life: 0,
+      maxLife: 55,
+      update(p) {
+        const snap = Math.min(1, p * 4);
+        rig.scale.set(2.1 - snap * 1.1);
+        rig.alpha = p < 0.8 ? 1 : (1 - (p - 0.8) / 0.2);
+        ring.rotation += 0.06;
+      }
+    });
+  };
+
+  function syncPersistentBountyMarker() {
+    if (!isMobBossClass()) {
+      lastBountySig = 'none';
+      return;
+    }
+    if (!ensureCustomLayers()) return;
+
+    const bIdx = getBountiedEnemyIndex();
+    const sig = bIdx >= 0 ? `bounty_${bIdx}` : 'none';
+
+    if (sig !== lastBountySig) {
+      if (lastBountySig !== 'none' && sig === 'none') {
+        const oldIdx = parseInt(lastBountySig.split('_')[1], 10) || 0;
+        window.playBountyVFX(oldIdx, 'collect');
+      } else if (sig !== 'none') {
+        window.playBountyVFX(bIdx, 'mark');
+      }
+      lastBountySig = sig;
+    }
+  }
+
+  // =========================================================================
+  // 4. SIGNATURE CARD & CLASS VFX LIBRARY
+  // =========================================================================
+  window.playCardSignatureVFX = function (card) {
+    if (!ensureCustomLayers() || !card) return;
+    lastCardPlayTimestamp = performance.now();
+
+    const name = String(card.name || '').toLowerCase();
+    const cls = String(card.classType || card.heroClass || (typeof gameState !== 'undefined' ? gameState.classType : '')).toLowerCase();
+    const type = String(card.type || '').toLowerCase();
+    const hero = getHeroPos();
+    const enemy = getEnemyPos(0);
+
+    // A. MOB BOSS: Bounty / Mark (Mob Boss only)
+    if (isMobBossClass() && (name.includes('bounty') || name.includes('wanted') || name.includes('contract'))) {
+      window.playBountyVFX(0, 'mark');
+      return;
+    }
+
+    // B. MOB BOSS: Tommy Gun / Rapid Bullet Tracers
+    if (name.includes('tommy') || name.includes('spray') || name.includes('ambush') || (isMobBossClass() && name.includes('shot'))) {
+      for (let i = 0; i < 6; i++) {
+        setTimeout(() => {
+          if (!ensureCustomLayers()) return;
+          const bullet = new PIXI.Graphics();
+          bullet.beginFill(0xfef08a, 1);
+          bullet.drawRoundedRect(-12, -2, 24, 4, 2);
+          bullet.endFill();
+          bullet.x = hero.x + 25;
+          bullet.y = hero.y + (Math.random() - 0.5) * 26;
+          bountyLayer.addChild(bullet);
+
+          const targetY = enemy.y + (Math.random() - 0.5) * 32;
+          activeFxList.push({
+            obj: bullet,
+            life: 0,
+            maxLife: 12,
+            update(p) {
+              bullet.x = hero.x + 25 + (enemy.x - hero.x - 25) * p;
+              bullet.y = bullet.y + (targetY - bullet.y) * p;
+            }
+          });
+        }, i * 55);
+      }
+      return;
+    }
+
+    // C. MOB BOSS: Bribe / Extort / Syndicate Cash (Mob Boss only)
+    if (isMobBossClass() && (name.includes('bribe') || name.includes('extort') || name.includes('cash') || name.includes('syndicate') || name.includes('hire'))) {
+      window.playBountyVFX(0, 'collect');
+      return;
+    }
+
+    // D. BLOOD REAVER: Flurry of Fangs / Bite Jaws
+    if (name.includes('fang') || name.includes('bite') || name.includes('devour')) {
+      for (let b = 0; b < 3; b++) {
+        setTimeout(() => {
+          if (!ensureCustomLayers()) return;
+          const jaws = new PIXI.Graphics();
+          jaws.beginFill(0xef4444, 0.95);
+          jaws.drawPolygon([-18, -22, -10, -4, -2, -22]);
+          jaws.drawPolygon([2, -22, 10, -4, 18, -22]);
+          jaws.drawPolygon([-18, 22, -10, 4, -2, 22]);
+          jaws.drawPolygon([2, 22, 10, 4, 18, 22]);
+          jaws.endFill();
+          jaws.x = enemy.x + (b - 1) * 12;
+          jaws.y = enemy.y;
+          bountyLayer.addChild(jaws);
+
+          activeFxList.push({
+            obj: jaws,
+            life: 0,
+            maxLife: 18,
+            update(p) {
+              jaws.scale.y = 1.3 - Math.sin(p * Math.PI) * 0.7;
+              jaws.alpha = 1 - p * 0.7;
+            }
+          });
+        }, b * 110);
+      }
+      return;
+    }
+
+    // E. BLOOD REAVER: Blood Boil / Hemorrhage Burst
+    if (name.includes('boil') || name.includes('hemorrhage') || name.includes('bleed') || name.includes('crimson')) {
+      for (let i = 0; i < 12; i++) {
+        const orb = new PIXI.Graphics();
+        orb.beginFill(i % 2 === 0 ? 0xdc2626 : 0x991b1b, 0.9);
+        orb.lineStyle(1, 0xfca5a5, 0.8);
+        orb.drawCircle(0, 0, 4 + Math.random() * 5);
+        orb.endFill();
+        orb.x = enemy.x + (Math.random() - 0.5) * 55;
+        orb.y = enemy.y + 24;
+        bountyLayer.addChild(orb);
+
+        const riseSpeed = 1.5 + Math.random() * 2;
+        activeFxList.push({
+          obj: orb,
+          life: 0,
+          maxLife: 34,
+          update(p) {
+            orb.y -= riseSpeed;
+            orb.scale.set(1 + p * 0.5);
+            orb.alpha = 1 - p;
+          }
+        });
+      }
+      return;
+    }
+
+    // F. BLOOD REAVER: Siphon / Blood Suck / Lifesteal Orb Return
+    if (name.includes('siphon') || name.includes('suck') || name.includes('drain') || name.includes('leech')) {
+      for (let i = 0; i < 8; i++) {
+        const drop = new PIXI.Graphics();
+        drop.beginFill(0xf43f5e, 1);
+        drop.drawCircle(0, 0, 5);
+        drop.endFill();
+        drop.x = enemy.x;
+        drop.y = enemy.y;
+        bountyLayer.addChild(drop);
+
+        const arcOffset = (Math.random() - 0.5) * 90;
+        activeFxList.push({
+          obj: drop,
+          life: 0,
+          maxLife: 28 + i * 2,
+          update(p) {
+            drop.x = enemy.x + (hero.x - enemy.x) * p;
+            drop.y = enemy.y + (hero.y - enemy.y) * p + Math.sin(p * Math.PI) * arcOffset;
+            drop.alpha = 1 - p * 0.4;
+          }
+        });
+      }
+      return;
+    }
+
+    // G. ARTIFICER: Overcharge / Command Turrets -> fire all active constructs immediately!
+    if (name.includes('overcharge') || name.includes('command') || name.includes('barrage') || name.includes('salvo')) {
+      window.triggerAllTurretAttackVFX();
+      return;
+    }
+
+    // H. ARTIFICER: Turret / Mech / Building / Forge Deployment
+    if (name.includes('turret') || name.includes('mech') || name.includes('walker') || name.includes('pylon') || name.includes('construct') || name.includes('forge') || name.includes('foundry')) {
+      const ring = new PIXI.Graphics();
+      ring.lineStyle(3, 0x38bdf8, 1);
+      ring.drawCircle(0, 0, 14);
+      ring.lineStyle(2, 0xf59e0b, 0.9);
+      ring.drawRect(-16, -16, 32, 32);
+      ring.x = hero.x + 55;
+      ring.y = hero.y - 45;
+      bountyLayer.addChild(ring);
+
+      activeFxList.push({
+        obj: ring,
+        life: 0,
+        maxLife: 30,
+        update(p) {
+          ring.rotation += 0.18;
+          ring.scale.set(0.6 + p * 1.4);
+          ring.alpha = 1 - p;
+        }
+      });
+      setTimeout(() => {
+        if (typeof window.renderArtificerTurrets === 'function') window.renderArtificerTurrets();
+      }, 40);
+      return;
+    }
+
+    // I. ARTIFICER: Plasma / Railgun / Laser Beam
+    if (cls.includes('artificer') || name.includes('laser') || name.includes('plasma') || name.includes('beam') || name.includes('volt')) {
+      const beam = new PIXI.Graphics();
+      beam.lineStyle(8, 0x0284c7, 0.45);
+      beam.moveTo(hero.x + 20, hero.y - 8);
+      beam.lineTo(enemy.x, enemy.y - 8);
+      beam.lineStyle(3, 0xe0f2fe, 1);
+      beam.moveTo(hero.x + 20, hero.y - 8);
+      beam.lineTo(enemy.x, enemy.y - 8);
+      bountyLayer.addChild(beam);
+
+      activeFxList.push({
+        obj: beam,
+        life: 0,
+        maxLife: 18,
+        update(p) {
+          beam.alpha = 1 - p;
+        }
+      });
+      return;
+    }
+
+    // J. CHRONOMANCER: Time Warp / Stasis / Echo Rift
+    if (cls.includes('chrono') || name.includes('time') || name.includes('chrono') || name.includes('stasis') || name.includes('echo')) {
+      const portal = new PIXI.Graphics();
+      portal.lineStyle(3, 0x22d3ee, 0.95);
+      portal.drawCircle(0, 0, 28);
+      portal.lineStyle(2, 0xc084fc, 0.9);
+      portal.moveTo(0, 0); portal.lineTo(0, -20);
+      portal.moveTo(0, 0); portal.lineTo(14, 0);
+      portal.x = type.includes('attack') ? enemy.x : hero.x;
+      portal.y = type.includes('attack') ? enemy.y : hero.y;
+      bountyLayer.addChild(portal);
+
+      activeFxList.push({
+        obj: portal,
+        life: 0,
+        maxLife: 32,
+        update(p) {
+          portal.rotation -= 0.15;
+          portal.scale.set(0.7 + Math.sin(p * Math.PI) * 0.7);
+          portal.alpha = 1 - p;
+        }
+      });
+      return;
+    }
+
+    // K. DEFENSIVE / SHIELD CARDS: Hexagonal Barrier Dome
+    if (type.includes('defend') || name.includes('shield') || name.includes('fortify') || name.includes('iron') || name.includes('ward')) {
+      const dome = new PIXI.Graphics();
+      dome.lineStyle(3, 0x38bdf8, 0.95);
+      dome.beginFill(0x38bdf8, 0.16);
+      dome.drawCircle(0, 0, 34);
+      dome.endFill();
+      dome.x = hero.x;
+      dome.y = hero.y;
+      bountyLayer.addChild(dome);
+
+      activeFxList.push({
+        obj: dome,
+        life: 0,
+        maxLife: 26,
+        update(p) {
+          dome.scale.set(0.85 + p * 0.35);
+          dome.alpha = 1 - p;
+        }
+      });
+      return;
+    }
+
+    // L. DEFAULT HEAVY ATTACK: High-Contrast Crescent Slash
+    const slash = new PIXI.Graphics();
+    slash.lineStyle(5, 0xf8fafc, 0.95);
+    slash.arc(0, 0, 34, -0.9, 0.9);
+    slash.lineStyle(2, 0xf59e0b, 0.9);
+    slash.arc(4, 0, 38, -0.7, 0.7);
+    slash.x = enemy.x - 10;
+    slash.y = enemy.y;
+    bountyLayer.addChild(slash);
+
+    activeFxList.push({
+      obj: slash,
+      life: 0,
+      maxLife: 16,
+      update(p) {
+        slash.x += 2;
+        slash.alpha = 1 - p;
+      }
+    });
+  };
+
+  // =========================================================================
+  // 5. TICKER, STATE WATCHER & END-OF-TURN TURRET FIRING HOOKS
+  // =========================================================================
+  function ensureExpansionTicker() {
+    if (typeof pixiApp === 'undefined' || !pixiApp || pixiApp.__vfxExpansionTicker) return;
+    pixiApp.__vfxExpansionTicker = true;
+
+    pixiApp.ticker.add((delta) => {
+      const t = performance.now() * 0.004;
+
+      if (turretLayer && turretLayer.children) {
+        turretLayer.children.forEach(pod => {
+          if (typeof pod.__baseY === 'number') {
+            pod.y = pod.__baseY + Math.sin(t + (pod.__phase || 0)) * 2.5;
+          }
+        });
+      }
+
+      if (goonLayer && goonLayer.children) {
+        goonLayer.children.forEach(unit => {
+          if (typeof unit.__baseY === 'number') {
+            unit.y = unit.__baseY + Math.abs(Math.sin(t * 1.3 + (unit.__phase || 0))) * -3;
+          }
+        });
+      }
+
+      for (let i = activeFxList.length - 1; i >= 0; i--) {
+        const fx = activeFxList[i];
+        fx.life += delta;
+        const p = Math.min(1, fx.life / fx.maxLife);
+        if (fx.update) fx.update(p);
+        if (p >= 1) {
+          if (fx.obj && fx.obj.parent) fx.obj.parent.removeChild(fx.obj);
+          if (fx.obj && !fx.obj.destroyed) fx.obj.destroy({ children: true });
+          activeFxList.splice(i, 1);
+        }
+      }
     });
   }
 
-  window.openArtificerSchematics = openSchematicsModal;
-  window.updateArtificerFoundryHUD = updateArtificerFoundryHUD;
+  setInterval(() => {
+    if (typeof gameState === 'undefined' || !gameState || gameState.screen !== 'BATTLE') {
+      lastTurretSig = '';
+      lastGoonSig = '';
+      lastBountySig = 'none';
+      lastTotalEnemyHp = null;
+      return;
+    }
 
-  // Hook into battle UI, board UI & card acquisition so unlocks update anywhere in a run
-  function installFoundryHooks() {
-    ensureFoundryDOM();
+    const turrets = getTurretList();
+    const tSig = JSON.stringify(turrets.map(t => (t && (t.id || t.name || 1))));
+    if (tSig !== lastTurretSig) {
+      lastTurretSig = tSig;
+      if (typeof window.renderArtificerTurrets === 'function') window.renderArtificerTurrets();
+    }
 
-    ['updateBattleUI', 'updateBoardUI', 'renderShopItems', 'selectHeroClass'].forEach(fnName => {
-      if (typeof window[fnName] === 'function' && !window[fnName].__afWrapped) {
+    // Detect end-of-turn turret damage when enemy HP drops outside of a direct card play
+    if (Array.isArray(gameState.enemies)) {
+      const totalHp = gameState.enemies.reduce((sum, e) => sum + (e ? Math.max(0, e.hp || 0) : 0), 0);
+      if (lastTotalEnemyHp !== null && totalHp < lastTotalEnemyHp && turrets.length > 0) {
+        const msSinceCard = performance.now() - lastCardPlayTimestamp;
+        if (msSinceCard > 450) {
+          window.triggerAllTurretAttackVFX();
+        }
+      }
+      lastTotalEnemyHp = totalHp;
+    }
+
+    const goons = getGoonList();
+    const gSig = JSON.stringify(goons.map(g => (g && `${g.name || 'g'}_${g.hp || 1}`)));
+    if (gSig !== lastGoonSig) {
+      lastGoonSig = gSig;
+      window.renderMobEnforcers();
+    }
+
+    syncPersistentBountyMarker();
+  }, 150);
+
+  function installCardVfxHooks() {
+    ['playCardEffect', 'resolveCardEffect', 'executeCard'].forEach(fnName => {
+      if (typeof window[fnName] === 'function' && !window[fnName].__vfxWrapped) {
         const orig = window[fnName];
-        const wrapped = function (...args) {
-          const res = orig.apply(this, args);
-          syncSchematicUnlocksFromCards(fnName !== 'selectHeroClass');
-          updateArtificerFoundryHUD();
-          if (fnName === 'updateBattleUI') window.renderArtificerTurrets();
-          return res;
+        const wrapped = function (card, ...rest) {
+          try {
+            if (card && typeof card === 'object') window.playCardSignatureVFX(card);
+          } catch (_) {}
+          return orig.apply(this, [card, ...rest]);
         };
-        wrapped.__afWrapped = true;
+        wrapped.__vfxWrapped = true;
         window[fnName] = wrapped;
       }
     });
 
-    syncSchematicUnlocksFromCards(false);
-    updateArtificerFoundryHUD();
+    // Also wrap end-of-turn / construct resolution functions if exposed globally
+    ['resolveTurrets', 'processTurrets', 'tickConstructs', 'endPlayerTurn'].forEach(fnName => {
+      if (typeof window[fnName] === 'function' && !window[fnName].__turretVfxWrapped) {
+        const orig = window[fnName];
+        const wrapped = function (...args) {
+          window.triggerAllTurretAttackVFX();
+          return orig.apply(this, args);
+        };
+        wrapped.__turretVfxWrapped = true;
+        window[fnName] = wrapped;
+      }
+    });
+
+    const seqContainer = document.getElementById('sequence-slots');
+    if (seqContainer && typeof MutationObserver !== 'undefined' && !seqContainer.__vfxSeqObs) {
+      seqContainer.__vfxSeqObs = true;
+      new MutationObserver(() => {
+        const activeSlot = seqContainer.querySelector('.active, .executing, .slot-active');
+        if (activeSlot && !activeSlot.dataset.vfxFired) {
+          activeSlot.dataset.vfxFired = '1';
+          const titleEl = activeSlot.querySelector('.slot-card-name, strong, b') || activeSlot;
+          window.playCardSignatureVFX({ name: titleEl.textContent || '' });
+        }
+      }).observe(seqContainer, { attributes: true, subtree: true, attributeFilter: ['class'] });
+    }
   }
 
-  // Poll deck/piles lightly so drafting a card reward or buying from shop unlocks immediately
-  setInterval(() => {
-    if (typeof gameState === 'undefined' || !gameState) return;
-    if (gameState.classType === 'Artificer' || getActiveConstructs().length > 0) {
-      syncSchematicUnlocksFromCards(true);
-      if (gameState.screen === 'BATTLE') {
-        updateArtificerFoundryHUD();
-      }
-    }
-  }, 400);
-
+  installCardVfxHooks();
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', installFoundryHooks);
-  } else {
-    installFoundryHooks();
+    document.addEventListener('DOMContentLoaded', installCardVfxHooks);
   }
 })();
