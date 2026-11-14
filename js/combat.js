@@ -1769,6 +1769,149 @@ function finishEnemyPhase() {
   updateBattleUI();
 }
 
+// --- POST-BATTLE RELIC DROP & TIER UPGRADE SYSTEM ---
+const COMBAT_RELIC_CATALOG = {
+  DEFLECTION: {
+    name: 'Deflection Buckler',
+    icon: '🛡️',
+    desc: '+3 Shield each turn per tier (Tier 3: Reflects 50% incoming DMG).'
+  },
+  CHRONO_HOURGLASS: {
+    name: 'Chrono Hourglass',
+    icon: '⏳',
+    desc: 'Every 2nd turn +1 Energy & Stasis Vault +1 turn (Tier 3: +1 Sequence Slot).'
+  },
+  TIME_WARP: {
+    name: 'Time Warp Accelerator',
+    icon: '⚡',
+    desc: 'Accelerates Sequence playback (Tier 3: Slot 2 deals +35% DMG).'
+  },
+  AEGIS_OVERCHARGER: {
+    name: 'Aegis Overcharger',
+    icon: '🔮',
+    desc: '+4 Shield per tier on Tome play (Tier 3: 10 DMG counter-pulse on full block).'
+  },
+  BLACK_FLASH: {
+    name: 'Black Flash Spark',
+    icon: '💥',
+    desc: '+5% Crit Chance per tier (Tier 3: 2.25x Crit DMG shockwaves).'
+  },
+  FRENZY: {
+    name: 'Blood Frenzy Idol',
+    icon: '🩸',
+    desc: 'Up to +50% DMG per tier from missing HP (Tier 3: +15% Lifesteal).'
+  },
+  IGNITION: {
+    name: 'Ignition Core',
+    icon: '🔥',
+    desc: 'Slot 3 attacks deal +5 bonus Burn DMG per tier.'
+  },
+  SHADOW_WEAVE: {
+    name: 'Shadow Weave Cloak',
+    icon: '🌑',
+    desc: '+5% Dodge Chance per tier (Tier 3: Heal 5% Max HP on Dodge).'
+  },
+  SYNDICATE_SIGNET: {
+    name: 'Syndicate Signet',
+    icon: '💍',
+    desc: '+8g Gold & +$8 Cash per tier after every combat.'
+  }
+};
+
+function awardPostBattleRelic(isBoss = false) {
+  if (!gameState) return null;
+  if (!gameState.relics || typeof gameState.relics !== 'object' || Array.isArray(gameState.relics)) {
+    gameState.relics = {};
+  }
+
+  // Merge any external RELIC_DATABASE / RELICS keys from data.js with the 9 combat relics
+  const db = window.RELIC_DATABASE || window.RELICS || {};
+  const allKeys = Array.from(new Set([
+    ...Object.keys(COMBAT_RELIC_CATALOG),
+    ...Object.keys(db)
+  ]));
+
+  const upgradableKeys = allKeys.filter(key => {
+    const meta = db[key] || COMBAT_RELIC_CATALOG[key] || {};
+    const maxTier = meta.maxTier || 3;
+    return (gameState.relics[key] || 0) < maxTier;
+  });
+
+  if (upgradableKeys.length === 0) return null;
+
+  // Prefer unlocking a brand-new Tier 0 relic first (70% weight), or upgrade an existing one
+  const unownedKeys = upgradableKeys.filter(k => (gameState.relics[k] || 0) === 0);
+  const pool = (unownedKeys.length > 0 && (isBoss || Math.random() < 0.70)) ? unownedKeys : upgradableKeys;
+  const chosenKey = pool[Math.floor(Math.random() * pool.length)];
+
+  const newTier = (gameState.relics[chosenKey] || 0) + 1;
+  gameState.relics[chosenKey] = newTier;
+
+  const meta = db[chosenKey] || COMBAT_RELIC_CATALOG[chosenKey] || {
+    name: chosenKey.replace(/_/g, ' '),
+    icon: '🏺',
+    desc: 'Relic Tier upgraded!'
+  };
+
+  if (typeof updateRelicsUI === 'function') updateRelicsUI();
+  if (typeof updateBoardUI === 'function') updateBoardUI();
+
+  return {
+    key: chosenKey,
+    name: meta.name || chosenKey.replace(/_/g, ' '),
+    icon: meta.icon || '🏺',
+    desc: meta.desc || meta.description || '',
+    tier: newTier,
+    maxTier: meta.maxTier || 3
+  };
+}
+
+function showRelicBannerOnDraftModal(relicReward) {
+  if (!relicReward) return;
+  const oldBanner = document.getElementById('combat-relic-reward-banner');
+  if (oldBanner) oldBanner.remove();
+
+  // Locate the currently visible card draft / victory modal container
+  const modalBox = Array.from(document.querySelectorAll('.modal.active .modal-content, .modal.open .modal-content, #modal-card-draft .modal-content, #modal-victory .modal-content, .draft-modal, .victory-modal')).find(
+    el => el && el.offsetParent !== null
+  );
+  if (!modalBox) return;
+
+  const banner = document.createElement('div');
+  banner.id = 'combat-relic-reward-banner';
+  banner.style.cssText = `
+    margin: 8px auto 12px auto;
+    padding: 9px 14px;
+    max-width: 480px;
+    background: linear-gradient(135deg, rgba(120, 53, 15, 0.92), rgba(30, 27, 75, 0.94));
+    border: 1.5px solid #f59e0b;
+    border-radius: 10px;
+    color: #fef3c7;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    text-align: left;
+    box-shadow: 0 6px 18px rgba(245, 158, 11, 0.28);
+  `;
+  banner.innerHTML = `
+    <div style="font-size:1.55rem;line-height:1;">${relicReward.icon}</div>
+    <div>
+      <div style="font-size:0.70rem;font-weight:800;letter-spacing:0.06em;text-transform:uppercase;color:#fbbf24;">
+        🏺 Battle Relic Drop — Tier ${relicReward.tier}/${relicReward.maxTier}
+      </div>
+      <div style="font-size:0.92rem;font-weight:900;color:#ffffff;">${relicReward.name}</div>
+      ${relicReward.desc ? `<div style="font-size:0.74rem;color:#fde68a;margin-top:2px;">${relicReward.desc}</div>` : ''}
+    </div>
+  `;
+
+  const header = modalBox.querySelector('h2, h3, .modal-header');
+  if (header && header.nextSibling) {
+    modalBox.insertBefore(banner, header.nextSibling);
+  } else {
+    modalBox.prepend(banner);
+  }
+}
+
 function checkPostActionVictoryOrDefeat() {
   if (gameState.combatOver) return true;
 
@@ -1813,18 +1956,23 @@ function checkPostActionVictoryOrDefeat() {
       }
     }
 
+    // Grant Post-Battle Relic Drop / Tier Upgrade
+    const relicReward = awardPostBattleRelic(isBoss);
+    const relicMsg = relicReward ? ` & ${relicReward.icon} ${relicReward.name} (T${relicReward.tier})` : '';
+
     if (gameState.classType === 'Mob Boss') {
       const cashReward = isBoss ? 35 : 15;
       const repReward = isBoss ? 10 : 5;
       gainSyndicateCash(cashReward);
       gainNotoriety(repReward);
-      showToast(`🏆 VICTORY! +${goldReward}g, +$${cashReward} Cash & +${repReward} ★ Notoriety!`, 'success');
+      showToast(`🏆 VICTORY! +${goldReward}g, +$${cashReward} Cash, +${repReward} ★${relicMsg}!`, 'success');
     } else {
-      showToast(`🏆 VICTORY! +${goldReward}g Gold earned!`, 'success');
+      showToast(`🏆 VICTORY! +${goldReward}g Gold${relicMsg}!`, 'success');
     }
 
     setTimeout(() => {
       openVictoryCardDraft(isBoss);
+      showRelicBannerOnDraftModal(relicReward);
     }, 550);
     return true;
   }
