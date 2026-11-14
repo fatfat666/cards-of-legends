@@ -1,4 +1,4 @@
-// --- TURRETS, MOB GOONS, BOUNTY ANIMATION & SIGNATURE CARD VFX (v0.8.1) ---
+// --- TURRETS, MOB GOONS, BOUNTY ANIMATION & SIGNATURE CARD VFX (v0.8.2) ---
 (function () {
   let turretLayer = null;
   let goonLayer = null;
@@ -6,7 +6,12 @@
   let activeFxList = [];
   let lastTurretSig = '';
   let lastGoonSig = '';
-  let lastBountySig = '';
+  let lastBountySig = 'none';
+
+  function isMobBossClass() {
+    return typeof gameState !== 'undefined' && gameState &&
+      String(gameState.classType || '').toLowerCase() === 'mob boss';
+  }
 
   function getStageBounds() {
     const c = document.getElementById('pixi-container');
@@ -67,79 +72,75 @@
     return Array.isArray(list) ? list : [];
   }
 
-  window.renderArtificerTurrets = function () {
-    if (!ensureCustomLayers()) return;
-    turretLayer.removeChildren();
+  if (typeof window.renderArtificerTurrets !== 'function') {
+    window.renderArtificerTurrets = function () {
+      if (!ensureCustomLayers()) return;
+      turretLayer.removeChildren();
 
-    const turrets = getTurretList();
-    if (!turrets.length) return;
+      const turrets = getTurretList();
+      if (!turrets.length) return;
 
-    const { w, h } = getStageBounds();
-    const hero = getHeroPos();
+      const { w, h } = getStageBounds();
+      const hero = getHeroPos();
 
-    turrets.forEach((t, idx) => {
-      const pod = new PIXI.Container();
-      // Arrange turrets in a clean arc above/ahead of the Artificer
-      const col = idx % 3;
-      const row = Math.floor(idx / 3);
-      const offsetX = 52 + col * 42;
-      const offsetY = -58 - row * 38 + (col % 2 === 0 ? 0 : 12);
+      turrets.forEach((t, idx) => {
+        const pod = new PIXI.Container();
+        const col = idx % 3;
+        const row = Math.floor(idx / 3);
+        const offsetX = 52 + col * 42;
+        const offsetY = -58 - row * 38 + (col % 2 === 0 ? 0 : 12);
 
-      pod.x = Math.min(w * 0.46, Math.round(hero.x + offsetX));
-      pod.y = Math.max(32, Math.round(hero.y + offsetY));
-      pod.__baseY = pod.y;
-      pod.__phase = idx * 1.1;
+        pod.x = Math.min(w * 0.46, Math.round(hero.x + offsetX));
+        pod.y = Math.max(32, Math.round(hero.y + offsetY));
+        pod.__baseY = pod.y;
+        pod.__phase = idx * 1.1;
 
-      const isOvercharged = Boolean(t && (t.overcharged || t.upgraded || (t.level && t.level > 1)));
-      const primaryColor = isOvercharged ? 0xf59e0b : 0x38bdf8;
-      const coreColor = isOvercharged ? 0xfef08a : 0xe0f2fe;
+        const isOvercharged = Boolean(t && (t.overcharged || t.upgraded || (t.level && t.level > 1)));
+        const primaryColor = isOvercharged ? 0xf59e0b : 0x38bdf8;
+        const coreColor = isOvercharged ? 0xfef08a : 0xe0f2fe;
 
-      // Tripod legs
-      const legs = new PIXI.Graphics();
-      legs.lineStyle(2.5, 0x64748b, 1);
-      legs.moveTo(-10, 12);
-      legs.lineTo(-4, 2);
-      legs.moveTo(10, 12);
-      legs.lineTo(4, 2);
-      pod.addChild(legs);
+        const legs = new PIXI.Graphics();
+        legs.lineStyle(2.5, 0x64748b, 1);
+        legs.moveTo(-10, 12);
+        legs.lineTo(-4, 2);
+        legs.moveTo(10, 12);
+        legs.lineTo(4, 2);
+        pod.addChild(legs);
 
-      // Turret armored dome + cannon barrel
-      const body = new PIXI.Graphics();
-      body.beginFill(0x0f172a, 0.95);
-      body.lineStyle(2, primaryColor, 1);
-      body.drawRoundedRect(-13, -10, 26, 16, 6);
-      body.endFill();
+        const body = new PIXI.Graphics();
+        body.beginFill(0x0f172a, 0.95);
+        body.lineStyle(2, primaryColor, 1);
+        body.drawRoundedRect(-13, -10, 26, 16, 6);
+        body.endFill();
 
-      // Cannon barrel pointing toward enemies
-      body.beginFill(primaryColor, 1);
-      body.drawRoundedRect(10, -5, 11, 5, 2);
-      body.endFill();
+        body.beginFill(primaryColor, 1);
+        body.drawRoundedRect(10, -5, 11, 5, 2);
+        body.endFill();
 
-      // Glowing energy core
-      body.beginFill(coreColor, 1);
-      body.drawCircle(0, -2, 4);
-      body.endFill();
-      pod.addChild(body);
+        body.beginFill(coreColor, 1);
+        body.drawCircle(0, -2, 4);
+        body.endFill();
+        pod.addChild(body);
 
-      // Compact tag showing turret type/damage
-      const labelText = (t && (t.shortName || t.name))
-        ? String(t.shortName || t.name).slice(0, 8)
-        : `T-${idx + 1}`;
-      const tag = new PIXI.Text(labelText, {
-        fontFamily: 'system-ui, sans-serif',
-        fontSize: 9,
-        fontWeight: '800',
-        fill: isOvercharged ? '#fde047' : '#7dd3fc',
-        stroke: '#020617',
-        strokeThickness: 3
+        const labelText = (t && (t.shortName || t.name))
+          ? String(t.shortName || t.name).slice(0, 8)
+          : `T-${idx + 1}`;
+        const tag = new PIXI.Text(labelText, {
+          fontFamily: 'system-ui, sans-serif',
+          fontSize: 9,
+          fontWeight: '800',
+          fill: isOvercharged ? '#fde047' : '#7dd3fc',
+          stroke: '#020617',
+          strokeThickness: 3
+        });
+        tag.anchor.set(0.5);
+        tag.y = -18;
+        pod.addChild(tag);
+
+        turretLayer.addChild(pod);
       });
-      tag.anchor.set(0.5);
-      tag.y = -18;
-      pod.addChild(tag);
-
-      turretLayer.addChild(pod);
-    });
-  };
+    };
+  }
 
   // =========================================================================
   // 2. MOB BOSS GOONS / ENFORCERS RENDERER
@@ -164,7 +165,6 @@
       if (g && typeof g.hp === 'number' && g.hp <= 0) return;
 
       const unit = new PIXI.Container();
-      // Position goons in a tight crew formation beside/slightly ahead of the Mob Boss
       const offsetX = 48 + (idx % 2) * 34;
       const offsetY = 18 + idx * 24 - (goons.length * 10);
 
@@ -176,38 +176,33 @@
       const isBruiser = g && /bruiser|heavy|muscle|hitman/i.test(String(g.name || g.role || ''));
       const accent = isBruiser ? 0xf97316 : 0xa855f7;
 
-      // Shadow
       const shadow = new PIXI.Graphics();
       shadow.beginFill(0x000000, 0.45);
       shadow.drawEllipse(0, 18, 13, 4);
       shadow.endFill();
       unit.addChild(shadow);
 
-      // Syndicate trench-coat body
       const coat = new PIXI.Graphics();
       coat.beginFill(0x1e1b4b, 0.96);
       coat.lineStyle(2, accent, 1);
       coat.drawPolygon([-10, 16, -7, -6, 7, -6, 10, 16]);
       coat.endFill();
 
-      // Head + Syndicate Fedora hat
       coat.beginFill(0xe2e8f0, 1);
       coat.drawCircle(0, -11, 5.5);
       coat.endFill();
 
       coat.beginFill(0x0f172a, 1);
       coat.lineStyle(1.5, accent, 1);
-      coat.drawRect(-9, -16, 18, 3); // Hat brim
-      coat.drawRect(-5, -21, 10, 5); // Hat crown
+      coat.drawRect(-9, -16, 18, 3);
+      coat.drawRect(-5, -21, 10, 5);
       coat.endFill();
 
-      // Tommy gun / bat silhouette
       coat.beginFill(0x94a3b8, 1);
       coat.drawRect(4, -2, 13, 3.5);
       coat.endFill();
       unit.addChild(coat);
 
-      // Goon name/HP badge
       const hpStr = (g && typeof g.hp === 'number') ? ` ${g.hp}♥` : '';
       const rawName = (g && g.name) ? String(g.name).split(' ')[0] : 'Goon';
       const label = new PIXI.Text(`${rawName}${hpStr}`, {
@@ -227,24 +222,27 @@
   };
 
   // =========================================================================
-  // 3. MOB BOSS BOUNTY LOCK-ON & CASH-OUT ANIMATION
+  // 3. MOB BOSS BOUNTY LOCK-ON & CASH-OUT ANIMATION (MOB BOSS ONLY)
   // =========================================================================
   function getBountiedEnemyIndex() {
-    if (typeof gameState === 'undefined' || !gameState || !Array.isArray(gameState.enemies)) return -1;
+    // Strictly only run Bounty tracking for Mob Boss
+    if (!isMobBossClass() || !Array.isArray(gameState.enemies)) return -1;
+
     if (typeof gameState.bountyTargetIndex === 'number' && gameState.bountyTargetIndex >= 0) {
-      return gameState.bountyTargetIndex;
+      const target = gameState.enemies[gameState.bountyTargetIndex];
+      if (target && target.hp > 0) return gameState.bountyTargetIndex;
     }
+
     return gameState.enemies.findIndex(e =>
-      e && e.hp > 0 && (e.bounty || e.hasBounty || e.bountyAmount > 0 || (e.statuses && e.statuses.bounty))
+      e && e.hp > 0 && (e.hasBounty || (e.statuses && e.statuses.bounty))
     );
   }
 
   window.playBountyVFX = function (enemyIdx = 0, mode = 'mark') {
-    if (!ensureCustomLayers()) return;
+    if (!isMobBossClass() || !ensureCustomLayers()) return;
     const target = getEnemyPos(enemyIdx);
 
     if (mode === 'collect') {
-      // Gold coin & syndicate cash shower from bountied enemy to player!
       const hero = getHeroPos();
       for (let i = 0; i < 16; i++) {
         const coin = new PIXI.Graphics();
@@ -274,7 +272,6 @@
               coin.x += burstVx;
               coin.y += burstVy;
             } else {
-              // Magnetize into Mob Boss hero
               coin.x += (hero.x - coin.x) * 0.16;
               coin.y += (hero.y - coin.y) * 0.16;
             }
@@ -291,7 +288,6 @@
       return;
     }
 
-    // Lock-on Crosshair Slam Animation
     const rig = new PIXI.Container();
     rig.x = target.x;
     rig.y = target.y;
@@ -303,7 +299,6 @@
     ring.drawCircle(0, 0, 32);
     ring.lineStyle(2, 0xef4444, 0.95);
     ring.drawCircle(0, 0, 22);
-    // Crosshair ticks
     ring.moveTo(-40, 0); ring.lineTo(-16, 0);
     ring.moveTo(16, 0);  ring.lineTo(40, 0);
     ring.moveTo(0, -40); ring.lineTo(0, -16);
@@ -338,13 +333,17 @@
   };
 
   function syncPersistentBountyMarker() {
+    if (!isMobBossClass()) {
+      lastBountySig = 'none';
+      return;
+    }
     if (!ensureCustomLayers()) return;
+
     const bIdx = getBountiedEnemyIndex();
     const sig = bIdx >= 0 ? `bounty_${bIdx}` : 'none';
 
     if (sig !== lastBountySig) {
       if (lastBountySig !== 'none' && sig === 'none') {
-        // Enemy with bounty just died -> trigger cash-out shower!
         const oldIdx = parseInt(lastBountySig.split('_')[1], 10) || 0;
         window.playBountyVFX(oldIdx, 'collect');
       } else if (sig !== 'none') {
@@ -366,14 +365,14 @@
     const hero = getHeroPos();
     const enemy = getEnemyPos(0);
 
-    // A. MOB BOSS: Bounty / Mark
-    if (name.includes('bounty') || name.includes('wanted') || name.includes('contract')) {
+    // A. MOB BOSS: Bounty / Mark (Mob Boss only)
+    if (isMobBossClass() && (name.includes('bounty') || name.includes('wanted') || name.includes('contract'))) {
       window.playBountyVFX(0, 'mark');
       return;
     }
 
     // B. MOB BOSS: Tommy Gun / Rapid Bullet Tracers
-    if (name.includes('tommy') || name.includes('spray') || name.includes('shot') || name.includes('lead') || name.includes('ambush')) {
+    if (name.includes('tommy') || name.includes('spray') || name.includes('ambush') || (isMobBossClass() && name.includes('shot'))) {
       for (let i = 0; i < 6; i++) {
         setTimeout(() => {
           if (!ensureCustomLayers()) return;
@@ -400,8 +399,8 @@
       return;
     }
 
-    // C. MOB BOSS: Bribe / Extort / Syndicate Cash
-    if (name.includes('bribe') || name.includes('extort') || name.includes('cash') || name.includes('syndicate') || name.includes('hire')) {
+    // C. MOB BOSS: Bribe / Extort / Syndicate Cash (Mob Boss only)
+    if (isMobBossClass() && (name.includes('bribe') || name.includes('extort') || name.includes('cash') || name.includes('syndicate') || name.includes('hire'))) {
       window.playBountyVFX(0, 'collect');
       return;
     }
@@ -413,7 +412,6 @@
           if (!ensureCustomLayers()) return;
           const jaws = new PIXI.Graphics();
           jaws.beginFill(0xef4444, 0.95);
-          // Top & bottom fang triangles
           jaws.drawPolygon([-18, -22, -10, -4, -2, -22]);
           jaws.drawPolygon([2, -22, 10, -4, 18, -22]);
           jaws.drawPolygon([-18, 22, -10, 4, -2, 22]);
@@ -490,8 +488,8 @@
       return;
     }
 
-    // G. ARTIFICER: Turret / Forge / Construct / Overcharge
-    if (name.includes('turret') || name.includes('construct') || name.includes('forge') || name.includes('deploy') || name.includes('overcharge')) {
+    // G. ARTIFICER: Turret / Mech / Building / Forge / Overcharge
+    if (name.includes('turret') || name.includes('mech') || name.includes('walker') || name.includes('pylon') || name.includes('construct') || name.includes('forge') || name.includes('foundry') || name.includes('overcharge')) {
       const ring = new PIXI.Graphics();
       ring.lineStyle(3, 0x38bdf8, 1);
       ring.drawCircle(0, 0, 14);
@@ -511,7 +509,9 @@
           ring.alpha = 1 - p;
         }
       });
-      setTimeout(() => window.renderArtificerTurrets(), 40);
+      setTimeout(() => {
+        if (typeof window.renderArtificerTurrets === 'function') window.renderArtificerTurrets();
+      }, 40);
       return;
     }
 
@@ -616,7 +616,6 @@
     pixiApp.ticker.add((delta) => {
       const t = performance.now() * 0.004;
 
-      // Subtle hover on Artificer turrets
       if (turretLayer && turretLayer.children) {
         turretLayer.children.forEach(pod => {
           if (typeof pod.__baseY === 'number') {
@@ -625,7 +624,6 @@
         });
       }
 
-      // Subtle bounce on Mob Boss goons
       if (goonLayer && goonLayer.children) {
         goonLayer.children.forEach(unit => {
           if (typeof unit.__baseY === 'number') {
@@ -634,7 +632,6 @@
         });
       }
 
-      // Update active card & bounty particle effects
       for (let i = activeFxList.length - 1; i >= 0; i--) {
         const fx = activeFxList[i];
         fx.life += delta;
@@ -649,12 +646,11 @@
     });
   }
 
-  // Watch state changes so turrets, goons, and bounties re-render automatically
   setInterval(() => {
     if (typeof gameState === 'undefined' || !gameState || gameState.screen !== 'BATTLE') {
       lastTurretSig = '';
       lastGoonSig = '';
-      lastBountySig = '';
+      lastBountySig = 'none';
       return;
     }
 
@@ -662,7 +658,7 @@
     const tSig = JSON.stringify(turrets.map(t => (t && (t.id || t.name || 1))));
     if (tSig !== lastTurretSig) {
       lastTurretSig = tSig;
-      window.renderArtificerTurrets();
+      if (typeof window.renderArtificerTurrets === 'function') window.renderArtificerTurrets();
     }
 
     const goons = getGoonList();
@@ -675,7 +671,6 @@
     syncPersistentBountyMarker();
   }, 150);
 
-  // Hook card execution functions so every card triggers its signature VFX
   function installCardVfxHooks() {
     ['playCardEffect', 'resolveCardEffect', 'executeCard'].forEach(fnName => {
       if (typeof window[fnName] === 'function' && !window[fnName].__vfxWrapped) {
@@ -691,7 +686,6 @@
       }
     });
 
-    // Also watch #sequence-slots active highlight during sequence execution
     const seqContainer = document.getElementById('sequence-slots');
     if (seqContainer && typeof MutationObserver !== 'undefined' && !seqContainer.__vfxSeqObs) {
       seqContainer.__vfxSeqObs = true;
