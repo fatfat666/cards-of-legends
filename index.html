@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+ <meta charset="UTF-8">
+ <meta name="viewport" content="width=device-width, initial-scale=1.0">
+ <title>Rogue Board v0.7.6: Seven-Class Synergy Engine, Unified Draft & Syndicate Overhaul</title>
+ <!-- PixiJS v7 CDN -->
+ <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.3.2/pixi.min.js"></script>
+ <!-- Google Fonts -->
+ <link href="https://fonts.googleapis.com/css2?family=Teko:wght@500;700&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+ 
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="game-container">
+
+ <!-- NON-BLOCKING TOAST NOTIFICATION -->
+ <div id="game-toast"></div>
+
+ <!-- MAIN MENU SCREEN -->
+ <div id="screen-main" class="screen active">
+ <div class="menu-title">ROGUE BOARD v0.7.6</div>
+ <div class="menu-subtitle">SEVEN-CLASS SYNERGY ENGINE • UNIFIED LOOTPOOL DRAFT • SYNDICATE OVERHAUL</div>
+ <button class="btn-menu" onclick="window.showScreen('screen-class')">START GAME</button>
+ <button class="btn-menu btn-purple" id="btn-main-builder" onclick="window.openDeckInfo('builder')">🔒 CARD BUILDER & PREVIEW</button>
+ <button class="btn-menu btn-secondary" onclick="window.openDeckInfo('cards')">DECK & MASTERY INDEX</button>
+ </div>
+
+ <!-- CLASS SELECTION SCREEN -->
+ <div id="screen-class" class="screen">
+ <div class="menu-title">SELECT CLASS & MASTERY</div>
+ <div class="menu-subtitle">Track your account mastery progression and choose from 7 champions</div>
+
+ <!-- LIVE ACCOUNT MASTERY PROGRESSION PANEL -->
+ <div class="mastery-overview-bar" id="class-mastery-overview">
+ <div class="mastery-stat-box">
+ <div class="mastery-stat-top">
+ <span>⚔️ ENEMIES SLAIN</span>
+ <span class="mastery-stat-val" id="mp-kills-text">0 / 15</span>
+ </div>
+ <div class="mastery-progress-track">
+ <div class="mastery-progress-fill" id="mp-kills-bar" style="width:0%;"></div>
+ </div>
+ </div>
+ <div class="mastery-stat-box">
+ <div class="mastery-stat-top">
+ <span>🏆 RUNS COMPLETED</span>
+ <span class="mastery-stat-val" id="mp-runs-text">0 / 3</span>
+ </div>
+ <div class="mastery-progress-track">
+ <div class="mastery-progress-fill" id="mp-runs-bar" style="width:0%;"></div>
+ </div>
+ </div>
+ <div class="mastery-stat-box">
+ <div class="mastery-stat-top">
+ <span>🔮 MASTERIES UNLOCKED</span>
+ <span class="mastery-stat-val" id="mp-nodes-text">7 / 21</span>
+ </div>
+ <div class="mastery-progress-track">
+ <div class="mastery-progress-fill" id="mp-nodes-bar" style="width:33%;"></div>
+ </div>
+ </div>
+ </div>
+
+ <div class="class-container">
+ <!-- Mage Card -->
+ <div class="class-card" id="card-mage" onclick="window.selectClass('Mage')">
+ <div class="class-mastery-badge" id="badge-mastery-Mage">MASTERY 1/3</div>
+ <div class="class-icon">🔮</div>
+ <div class="class-name" style="color:var(--accent-purple)">MAGE</div>
+ <div class="class-desc">HP: 55 | Shield: 0 | Mana: 5 | Vault: 2. Arcane Strikes, Barriers, Sparks & Arcane Battery.</div>
+ <div class="mastery-tree-container" id="mage-mastery-tree"></div>
+ </div>
+ 
+ <!-- Warrior Card -->
+ <div class="class-card" id="card-warrior" onclick="window.selectClass('Warrior')">
+ <div class="class-mastery-badge" id="badge-mastery-Warrior">MASTERY 1/3</div>
+ <div class="class-icon">🛡️</div>
+ <div class="class-name" style="color:var(--accent-red)">WARRIOR</div>
+ <div class="class-desc">HP: 90 | Shield: 15 | Crit: 5% | Vault: 2. Heavy Slashes, Iron Defenses, Restoration & Fortify.</div>
+ <div class="mastery-tree-container" id="warrior-mastery-tree"></div>
+ </div>
+
+ <!-- Rogue Card -->
+ <div class="class-card selected" id="card-rogue" onclick="window.selectClass('Rogue')">
+ <div class="class-mastery-badge" id="badge-mastery-Rogue">MASTERY 1/3</div>
+ <div class="class-icon">🗡️</div>
+ <div class="class-name" style="color:var(--accent-green)">ROGUE</div>
+ <div class="class-desc">HP: 70 | Shield: 0 | Crit: 15% | Dodge: 20%. Quick Daggers, Smoke Screens, Toxic Needles & Venom Spreader.</div>
+ <div class="mastery-tree-container" id="rogue-mastery-tree"></div>
+ </div>
+
+ <!-- Chronomancer Card -->
+ <div class="class-card" id="card-chronomancer" onclick="window.selectClass('Chronomancer')">
+ <div class="class-mastery-badge" id="badge-mastery-Chronomancer">MASTERY 1/3</div>
+ <div class="class-icon">⏳</div>
+ <div class="class-name" style="color:var(--accent-teal)">CHRONOMANCER</div>
+ <div class="class-desc">HP: 70 | Shield: 5 | Dodge: 10% (+10%/Chronos) | Vault: 2. Temporal Paradox Pack + Time Slow.</div>
+ <div class="mastery-tree-container" id="chronomancer-mastery-tree"></div>
+ </div>
+
+ <!-- Artificer Card -->
+ <div class="class-card" id="card-artificer" onclick="window.selectClass('Artificer')">
+ <div class="class-mastery-badge" id="badge-mastery-Artificer">MASTERY 1/3</div>
+ <div class="class-icon">⚙️</div>
+ <div class="class-name" style="color:var(--accent-gold)">ARTIFICER</div>
+ <div class="class-desc">HP: 75 | Shield: 10 | Scrap: 2/turn. Scrapyard Foundry Pack + 10-HP Auto-Turrets.</div>
+ <div class="mastery-tree-container" id="artificer-mastery-tree"></div>
+ </div>
+
+ <!-- Blood Reaver Card -->
+ <div class="class-card" id="card-blood-reaver" onclick="window.selectClass('Blood Reaver')">
+ <div class="class-mastery-badge" id="badge-mastery-Blood Reaver">MASTERY 1/3</div>
+ <div class="class-icon">🩸</div>
+ <div class="class-name" style="color:var(--accent-crimson)">BLOOD REAVER</div>
+ <div class="class-desc">HP: 115 | Shield: 0 | Max Energy: 2. Crimson Tithe Pack + Hemorrhage & Overheal.</div>
+ <div class="mastery-tree-container" id="blood-reaver-mastery-tree"></div>
+ </div>
+
+ <!-- Mob Boss Card (7th Playable Class) -->
+ <div class="class-card mob-boss-card" id="card-mob-boss" onclick="window.selectClass('Mob Boss')">
+ <div class="class-mastery-badge" id="badge-mastery-Mob Boss">MASTERY 1/3</div>
+ <div class="class-icon">🎩</div>
+ <div class="class-name" style="color:var(--accent-mob)">MOB BOSS</div>
+ <div class="class-desc">HP: 80 | Shield: 10 | Crit: 10% | Dodge: 10% | Vault: 2 | $45 Cash & 15 ★ Notoriety. Retaliating Enforcers, Bounty Hits & Black Market.</div>
+ <div class="mastery-tree-container" id="mob-boss-mastery-tree"></div>
+ </div>
+ </div>
+ <div style="display:flex; gap:10px; flex-wrap:wrap; justify-content:center;">
+ <button class="btn-menu btn-purple" id="btn-class-builder" onclick="window.openDeckInfo('builder')">🔒 CUSTOMIZE DECK</button>
+ <button class="btn-menu" onclick="window.confirmClassAndStart()">ENTER BOARD</button>
+ </div>
+ </div>
+
+ <!-- BOARD / MAP VIEW SCREEN -->
+ <div id="screen-board" class="screen">
+ <div class="menu-title">ROGUE BOARD MAP</div>
+ <div class="menu-subtitle">Navigate through nodes to reach the Final Boss • Visit the Underground Black Market anytime</div>
+ <div style="display:flex; gap:10px; flex-wrap:wrap; justify-content:center; margin-top:4px;">
+ <div class="stat-badge" style="border-color:var(--accent-mob);">CASH: <span id="board-cash-text" style="color:#4ade80;">$0</span></div>
+ <div class="stat-badge" style="border-color:var(--accent-mob);">NOTORIETY: <span id="board-notoriety-text" style="color:var(--accent-mob);">0 ★ (RANK I)</span></div>
+ <div class="stat-badge">GOLD: <span id="board-gold-text" style="color:var(--accent-gold);">50g</span></div>
+ </div>
+ <div class="board-grid" id="board-grid"></div>
+ <div style="display:flex; gap:10px; flex-wrap:wrap; justify-content:center;">
+ <button class="btn-menu btn-velvet" id="btn-board-black-market" onclick="window.openBlackMarketModal()">🎩 BLACK MARKET (3/6)</button>
+ <button class="btn-menu btn-purple" id="btn-board-builder" onclick="window.openDeckInfo('builder')">🔒 OPEN CARD BUILDER</button>
+ <button class="btn-menu" id="btn-next-node" onclick="window.triggerNodeReveal()">SCOUT NEXT NODE</button>
+ </div>
+ </div>
+
+ <!-- BATTLE ARENA SCREEN -->
+ <div id="screen-battle" class="screen" style="padding:0; backdrop-filter:none; background:transparent;">
+ <div class="hud-header">
+ <div class="hud-title">ROGUE BOARD</div>
+ <div class="hud-stats">
+ <div class="stat-badge">CLASS: <span id="ui-class">ROGUE</span></div>
+ <div class="stat-badge">
+ HP: 
+ <div class="bar-container">
+ <div class="bar-fill" id="ui-hp-bar"></div>
+ </div>
+ <span id="ui-hp-text">70/70</span>
+ </div>
+ <div class="stat-badge" id="ui-shield-badge">SHIELD: <span id="ui-shield" style="color:var(--accent-cyan)">0</span></div>
+ <div class="stat-badge" id="ui-mana-badge" style="display:none;">MANA: <span id="ui-mana" style="color:var(--accent-purple)">5/5</span></div>
+ <div class="stat-badge" id="ui-chronos-badge" style="display:none;">CHRONOS: <span id="ui-chronos" style="color:var(--accent-teal)">0/3</span></div>
+ <div class="stat-badge" id="ui-parts-badge" style="display:none;">PARTS: <span id="ui-parts" style="color:var(--accent-gold)">0/6</span> | TURRETS: <span id="ui-turrets" style="color:var(--accent-cyan)">0/3</span></div>
+ <div class="stat-badge" id="ui-cash-badge" style="border-color:rgba(234, 179, 8, 0.45);">CASH: <span id="ui-cash" style="color:#4ade80">$0</span> | <span id="ui-notoriety" style="color:var(--accent-mob)">0★</span><span id="ui-enforcers-wrap" style="display:none;"> | CREW: <span id="ui-enforcers" style="color:var(--accent-mob)">0/3</span></span></div>
+ <div class="stat-badge">CRIT/DODGE: <span id="ui-crit" style="color:var(--accent-gold)">15% / 20%</span></div>
+ <div class="stat-badge">GOLD: <span id="ui-gold" style="color:var(--accent-gold)">50g</span></div>
+ <div class="stat-badge">ENERGY: <span id="ui-energy" style="color:var(--accent-cyan)">3/3</span></div>
+ <div class="stat-badge" onclick="window.toggleSpeed()" style="cursor:pointer;">SPEED: <span id="ui-speed" style="color:var(--accent-gold)">1x</span></div>
+ <div class="stat-badge" onclick="window.openDeckInfo('mastery')" style="cursor:pointer; border-color:var(--accent-purple); color:var(--accent-purple);">🔮 MASTERIES</div>
+ </div>
+ </div>
+ <div id="canvas-wrapper">
+ <div id="enemy-tooltip"></div>
+ </div>
+ <div class="controls-panel">
+ <div class="ability-bar" id="ui-ability-btn" onclick="window.useClassAbility()">
+ 🗡️ PRECISE POISON (+8 DMG Next Hit) [1 Energy]
+ </div>
+
+ <!-- STASIS VAULT CONTAINER -->
+ <div class="stasis-vault-bar">
+ <div class="stasis-vault-title">
+ 🔮 STASIS VAULT <span id="ui-vault-count" style="font-size:11px; color:var(--text-muted); font-weight:normal;">(0/1)</span>
+ </div>
+ <div class="vault-slots-container" id="stasis-vault-slots"></div>
+ </div>
+
+ <!-- SEQUENCE SLOTS -->
+ <div class="sequence-slots" id="sequence-slots"></div>
+
+ <!-- SCRAP & DECK STATUS BAR -->
+ <div class="scrap-status-bar">
+ <div>SCRAP CAPACITY: <strong id="ui-scrap-text" style="color:var(--accent-gold);">0 / 1 USED</strong></div>
+ <div style="color:var(--accent-cyan);">DRAW PILE: <strong id="ui-draw-count">0</strong> | DISCARD: <strong id="ui-discard-count">0</strong></div>
+ <div class="scrap-bar-actions">
+ <button class="btn-compact-hud" onclick="window.openDeckInfo('cards')">INSPECT DECK</button>
+ <button class="btn-compact-hud bm-hud-btn" id="btn-hud-black-market" onclick="window.openBlackMarketModal()">🎩 BLACK MARKET (3/6)</button>
+ </div>
+ </div>
+
+ <div class="hand-cards" id="hand-cards"></div>
+ <div class="action-btn-row">
+ <button class="btn-execute" id="btn-execute" onclick="window.executeSequence()">EXECUTE SEQUENCE</button>
+ <button class="btn-rest" id="btn-rest" onclick="window.restAndCharge()">REST & CHARGE (+1 SLOT)</button>
+ </div>
+ </div>
+ </div>
+
+ <!-- SHOP SCREEN -->
+ <div id="screen-shop" class="screen">
+ <div class="menu-title" style="color:var(--accent-green)">NEON BAZAAR SHOP</div>
+ <div class="menu-subtitle">Spend gold to buy HP, Energy, Cards, Relics, and Ability Power</div>
+ <div style="font-size:20px; font-weight:bold; color:var(--accent-gold); margin-bottom:14px;">AVAILABLE GOLD: <span id="shop-gold-text">50</span>g</div>
+ 
+ <div class="class-container" style="max-width:960px;" id="shop-items-container">
+ <div class="class-card">
+ <div class="class-icon">🧪</div>
+ <div class="class-name">HP RECOVERY</div>
+ <div class="class-desc">Restore +30 Health Points immediately</div>
+ <button class="btn-menu btn-secondary" style="font-size:18px; min-width:auto; padding:6px 18px;" onclick="window.buyShopItem('heal')">COST: 25g</button>
+ </div>
+
+ <div class="class-card">
+ <div class="class-icon">⚡</div>
+ <div class="class-name">ENERGY BOOST</div>
+ <div class="class-desc">Permanently gain +1 Max Energy per turn</div>
+ <button class="btn-menu btn-secondary" style="font-size:18px; min-width:auto; padding:6px 18px;" onclick="window.buyShopItem('energy')">COST: 40g</button>
+ </div>
+
+ <div class="class-card">
+ <div class="class-icon">🔥</div>
+ <div class="class-name">FIREBALL TOME</div>
+ <div class="class-desc">Add Fireball (+25 DMG, 2 Mana) to deck</div>
+ <button class="btn-menu btn-secondary" style="font-size:18px; min-width:auto; padding:6px 18px;" onclick="window.buyShopItem('card_fireball')">COST: 35g</button>
+ </div>
+
+ <div class="class-card">
+ <div class="class-icon">☣️</div>
+ <div class="class-name">CATALYTIC RUPTURE</div>
+ <div class="class-desc">Add Poison Detonator (+1.5x DoT DMG) to deck</div>
+ <button class="btn-menu btn-secondary" style="font-size:18px; min-width:auto; padding:6px 18px;" onclick="window.buyShopItem('card_catalytic')">COST: 35g</button>
+ </div>
+
+ <div class="class-card">
+ <div class="class-icon">💥</div>
+ <div class="class-name">SHIELD SLAM</div>
+ <div class="class-desc">Add Shield Cannon (100% Shield → Direct DMG)</div>
+ <button class="btn-menu btn-secondary" style="font-size:18px; min-width:auto; padding:6px 18px;" onclick="window.buyShopItem('card_shieldslam')">COST: 35g</button>
+ </div>
+
+ <div class="class-card">
+ <div class="class-icon">🔮</div>
+ <div class="class-name">RANDOM RELIC</div>
+ <div class="class-desc">Unlock 1 Tier for a Random Passive Relic</div>
+ <button class="btn-menu btn-secondary" style="font-size:18px; min-width:auto; padding:6px 18px;" onclick="window.buyShopItem('relic_random')">COST: 50g</button>
+ </div>
+ </div>
+
+ <div style="display:flex; gap:10px; margin-top:8px;">
+ <button class="btn-menu btn-velvet" onclick="window.openBlackMarketModal()">🎩 BLACK MARKET</button>
+ <button class="btn-menu" onclick="window.leaveShop()">LEAVE SHOP</button>
+ </div>
+ </div>
+
+ <!-- UNDERGROUND BLACK MARKET SPEAKEASY MODAL -->
+ <div id="modal-black-market" class="modal">
+ <div class="menu-title" style="font-size:36px; margin-top:0; background:linear-gradient(135deg, #fef08a, #eab308, #fb7185); -webkit-background-clip:text; -webkit-text-fill-color:transparent;">🎩 UNDERGROUND BLACK MARKET</div>
+ <div class="menu-subtitle" style="margin-bottom:8px; color:#e2e8f0;">Raise your ★ Notoriety to unlock Dealer Vault Slots & high-tier Contraband</div>
+
+ <!-- LIVE NOTORIETY & CASH HEADER -->
+ <div class="bm-header-banner">
+ <div style="display:flex; flex-direction:column; align-items:flex-start; gap:4px;">
+ <div class="bm-rank-pill" id="bm-rank-badge">RANK I • STREET ROOKIE</div>
+ <div style="font-size:13px; font-weight:800; color:#4ade80;">
+ SYNDICATE CASH: <span id="bm-cash-display" style="font-size:17px;">$0</span>
+ <span id="bm-discount-tag" style="font-size:10px; color:#fef08a; margin-left:6px;"></span>
+ </div>
+ </div>
+
+ <div class="bm-notoriety-box">
+ <div style="display:flex; justify-content:space-between; align-items:center; font-size:11px; font-weight:800;">
+ <span style="color:var(--accent-mob);" id="bm-notoriety-score">★ 0 NOTORIETY</span>
+ <span style="color:#fef08a;" id="bm-next-unlock-text">NEXT SLOT AT 15 ★</span>
+ </div>
+ <div class="bm-notoriety-track">
+ <div class="bm-notoriety-fill" id="bm-notoriety-bar" style="width:0%;"></div>
+ </div>
+ <div style="display:flex; justify-content:space-between; font-size:10px; color:var(--text-muted);">
+ <span>DEALER SLOTS: <strong id="bm-slots-unlocked-text" style="color:var(--accent-mob);">3/6 UNLOCKED</strong></span>
+ <span id="bm-tier-access-text">TIER I CONTRABAND</span>
+ </div>
+ </div>
+
+ <button class="btn-bm-restock" id="btn-bm-restock" onclick="window.restockBlackMarket()">🔄 RESTOCK DEALER ($15)</button>
+ </div>
+
+ <!-- 6-SLOT (3x2) DEALER STOCK GRID -->
+ <div class="bm-dealer-grid" id="bm-dealer-grid"></div>
+
+ <div style="display:flex; gap:12px; margin-top:4px; align-items:center;">
+ <span style="font-size:11px; color:#cbd5e1;" id="bm-combat-hint">Purchased cards are added permanently to your deck (and immediately to your hand during combat!).</span>
+ <button class="btn-menu btn-secondary" style="font-size:20px; padding:5px 24px; min-width:auto; margin:0;" onclick="window.closeBlackMarketModal()">CLOSE</button>
+ </div>
+ </div>
+
+ <!-- COIN FLIP SCOUTING MODAL -->
+ <div id="modal-coin" class="modal" style="justify-content:center;">
+ <div class="menu-title">SCOUTING NODE</div>
+ <div class="menu-subtitle">Flipping node destiny coin...</div>
+ <div id="coin-anim" style="width:100px; height:100px; border-radius:50%; background:linear-gradient(135deg, var(--accent-gold), #b45309); border:4px solid var(--accent-cyan); display:flex; align-items:center; justify-content:center; font-family:'Teko'; font-size:48px; margin:20px 0;">0</div>
+ <div id="coin-result" style="font-size:24px; font-weight:800; color:var(--accent-cyan); min-height:36px;">FLIPPING...</div>
+ <button class="btn-menu" id="btn-coin-proceed" style="display:none;" onclick="window.proceedToNode()">ENTER NODE</button>
+ </div>
+
+ <!-- POST-BATTLE CARD DRAFT MODAL -->
+ <div id="modal-card-draft" class="modal" style="justify-content:center;">
+ <div class="menu-title" style="background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple)); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">VICTORY DRAFT: CHOOSE A CARD</div>
+ <div class="menu-subtitle">Unified Cross-Class Lootpool — All 7 Classes &amp; Neutral Cards Mixed Together (Deck Limit: 20 Max)</div>
+ <div class="class-container" id="card-draft-container" style="max-width:920px; margin: 20px 0;"></div>
+ <button class="btn-menu btn-secondary" onclick="window.skipCardDraft()">SKIP CARD DRAFT (+10 GOLD)</button>
+ </div>
+
+ <!-- POST-BATTLE PASSIVE RELIC DRAFT MODAL -->
+ <div id="modal-relic-draft" class="modal" style="justify-content:center;">
+ <div class="menu-title" style="background: linear-gradient(135deg, var(--accent-gold), var(--accent-purple)); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">VICTORY DRAFT: CHOOSE RELIC</div>
+ <div class="menu-subtitle">Select a passive relic to empower your build</div>
+ <div class="class-container" id="relic-draft-container" style="max-width:920px; margin: 20px 0;"></div>
+ <button class="btn-menu btn-secondary" onclick="window.skipRelicDraft()">SKIP DRAFT (+15 GOLD)</button>
+ </div>
+
+ <!-- DECK BUILDER & SYSTEM INDEX MODAL -->
+ <div id="modal-deck" class="modal">
+ <div class="menu-title" style="font-size:34px; margin-top:0;">CARD BUILDER & SYSTEM INDEX</div>
+ <div class="menu-subtitle" style="margin-bottom:8px;">Customize your 20-card deck, preview expansion &amp; contraband packs in combat, and inspect relics &amp; masteries</div>
+
+ <div style="display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap; justify-content:center;">
+ <button class="index-tab-btn active-tab" id="tab-builder-btn" onclick="window.switchIndexTab('builder')">🔒 DECK BUILDER (ADMIN)</button>
+ <button class="index-tab-btn" id="tab-cards-btn" onclick="window.switchIndexTab('cards')">COMBAT DECK INSPECTOR</button>
+ <button class="index-tab-btn" id="tab-relics-btn" onclick="window.switchIndexTab('relics')">PASSIVE RELICS (6)</button>
+ <button class="index-tab-btn" id="tab-mastery-btn" onclick="window.switchIndexTab('mastery')">CLASS MASTERY & PERKS (7)</button>
+ </div>
+
+ <div class="deck-gallery-grid" id="deck-index-grid"></div>
+
+ <div style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap; justify-content:center;">
+ <button class="btn-menu btn-purple" id="btn-modal-preview-combat" style="font-size:20px; padding:6px 22px; min-width:auto;" onclick="window.previewCustomDeckInBattle()">⚔️ PREVIEW DECK IN COMBAT</button>
+ <button class="btn-menu btn-secondary" style="font-size:20px; padding:6px 22px; min-width:auto;" onclick="window.closeDeckInfo()">CLOSE</button>
+ </div>
+ </div>
+
+ <!-- ADMIN PASSWORD LOCK MODAL -->
+ <div id="modal-admin-lock" class="modal" style="justify-content:center; z-index:150;">
+ <div class="admin-lock-box" id="admin-lock-box">
+ <div style="font-size:36px; margin-bottom:4px;">🔐</div>
+ <div class="menu-title" style="font-size:32px; margin:0;">ADMIN ACCESS REQUIRED</div>
+ <div style="font-size:12px; color:var(--text-muted); margin-top:4px; line-height:1.4;">
+ Enter the Admin Password to unlock the Deck Builder &amp; Combat Preview Sandbox.
+ </div>
+ <input
+ type="password"
+ id="admin-password-input"
+ class="admin-pass-input"
+ placeholder="Enter admin password..."
+ autocomplete="off"
+ onkeydown="if (event.key === 'Enter') window.verifyAdminPassword();"
+ />
+ <div class="admin-error-msg" id="admin-password-error"></div>
+ <div style="display:flex; gap:8px; width:100%; justify-content:center; margin-top:6px;">
+ <button class="btn-menu btn-purple" style="font-size:20px; padding:6px 20px; min-width:140px; margin:0;" onclick="window.verifyAdminPassword()">UNLOCK</button>
+ <button class="btn-menu btn-secondary" style="font-size:20px; padding:6px 18px; min-width:110px; margin:0;" onclick="window.closeAdminLockModal()">CANCEL</button>
+ </div>
+ </div>
+ </div>
+
+</div>
+
+
+  <script src="js/data.js"></script>
+  <script src="js/state.js"></script>
+  <script src="js/vfx.js"></script>
+  <script src="js/combat.js"></script>
+  <script src="js/ui.js"></script>
+</body>
+</html>
