@@ -1,4 +1,4 @@
-// --- MODERN CINEMATIC WEB AUDIO ENGINE (v0.8.0) ---
+// --- MODERN CINEMATIC WEB AUDIO ENGINE & AUTO-WIRING (v0.8.0) ---
 const SoundFX = (() => {
   let ctx = null;
   let masterGain = null;
@@ -26,7 +26,7 @@ const SoundFX = (() => {
       compressor.connect(masterGain);
       masterGain.connect(ctx.destination);
 
-      // 2-second pink-ish filtered noise buffer for organic whooshes, gunfire & impacts
+      // 2-second pink-filtered noise buffer for organic whooshes, gunfire & impacts
       const sampleRate = ctx.sampleRate;
       const length = sampleRate * 2;
       noiseBuffer = ctx.createBuffer(1, length, sampleRate);
@@ -106,7 +106,7 @@ const SoundFX = (() => {
     osc.stop(t0 + duration + 0.02);
   }
 
-  return {
+  const api = {
     isMuted() {
       return muted;
     },
@@ -132,7 +132,6 @@ const SoundFX = (() => {
     },
 
     playVault() {
-      // Pneumatic stasis seal + crystalline lock chime
       playNoise({ duration: 0.16, filterType: 'lowpass', freqStart: 900, freqEnd: 180, q: 3.0, gain: 0.30 });
       playTone({ type: 'sine', freqStart: 587.33, freqEnd: 880, duration: 0.24, gain: 0.18, attack: 0.01 });
       playTone({ type: 'triangle', freqStart: 1174.66, freqEnd: 1174.66, duration: 0.28, gain: 0.10, delay: 0.04 });
@@ -144,7 +143,6 @@ const SoundFX = (() => {
     },
 
     playScrap() {
-      // Metallic shred + hydraulic vent
       playNoise({ duration: 0.18, filterType: 'bandpass', freqStart: 1600, freqEnd: 320, q: 3.5, gain: 0.38 });
       playTone({ type: 'sawtooth', freqStart: 190, freqEnd: 65, duration: 0.16, gain: 0.16, attack: 0.005 });
     },
@@ -175,7 +173,6 @@ const SoundFX = (() => {
     },
 
     playShield() {
-      // Resonant titanium + energy barrier harmonic
       playTone({ type: 'sine', freqStart: 523.25, freqEnd: 783.99, duration: 0.26, gain: 0.20, attack: 0.008 });
       playTone({ type: 'triangle', freqStart: 1046.5, freqEnd: 1318.5, duration: 0.30, gain: 0.11, delay: 0.02 });
     },
@@ -209,7 +206,6 @@ const SoundFX = (() => {
     },
 
     playGunfire() {
-      // Punchy ballistic snap + low-end punch
       playNoise({ duration: 0.095, filterType: 'bandpass', freqStart: 2800, freqEnd: 420, q: 1.4, gain: 0.46 });
       playTone({ type: 'sine', freqStart: 175, freqEnd: 44, duration: 0.09, gain: 0.32, attack: 0.002 });
     },
@@ -235,7 +231,6 @@ const SoundFX = (() => {
     },
 
     playBlackFlash() {
-      // Sub-bass impact drop + distorted crimson spatial crack
       playTone({ type: 'sine', freqStart: 150, freqEnd: 28, duration: 0.44, gain: 0.52, attack: 0.003 });
       playTone({ type: 'sawtooth', freqStart: 95, freqEnd: 32, duration: 0.36, gain: 0.26, attack: 0.004 });
       playNoise({ duration: 0.28, filterType: 'bandpass', freqStart: 3600, freqEnd: 220, q: 3.2, gain: 0.52 });
@@ -256,7 +251,6 @@ const SoundFX = (() => {
     },
 
     playVictory() {
-      // Modern lush major-9th synth swell
       const notes = [261.63, 329.63, 392.00, 493.88, 587.33];
       notes.forEach((freq, i) => {
         playTone({ type: 'sine', freqStart: freq, freqEnd: freq * 1.005, duration: 0.65, gain: 0.14, attack: 0.03, delay: i * 0.075 });
@@ -271,4 +265,160 @@ const SoundFX = (() => {
       });
     }
   };
+
+  // --- AUTO-HOOK INTO VFX, COMBAT & UI GLOBALS ---
+  function wrapGlobal(fnName, hook) {
+    const orig = window[fnName];
+    if (typeof orig !== 'function' || orig.__sfxWrapped) return;
+    const wrapped = function (...args) {
+      return hook(orig, this, args);
+    };
+    wrapped.__sfxWrapped = true;
+    window[fnName] = wrapped;
+  }
+
+  function installHooks() {
+    // 1. Specialized VFX hooks
+    wrapGlobal('spawnRailgunBeamVFX', (orig, self, args) => {
+      api.playRailgun();
+      return orig.apply(self, args);
+    });
+    wrapGlobal('spawnFlameJetVFX', (orig, self, args) => {
+      api.playFire();
+      return orig.apply(self, args);
+    });
+    wrapGlobal('spawnChainLightningVFX', (orig, self, args) => {
+      api.playLightning();
+      return orig.apply(self, args);
+    });
+    wrapGlobal('spawnBarrierPulseVFX', (orig, self, args) => {
+      api.playShield();
+      return orig.apply(self, args);
+    });
+    wrapGlobal('spawnGunfireTracer', (orig, self, args) => {
+      api.playGunfire();
+      return orig.apply(self, args);
+    });
+    wrapGlobal('spawnCashParticles', (orig, self, args) => {
+      api.playCash();
+      return orig.apply(self, args);
+    });
+    wrapGlobal('spawnBlackFlashVFX', (orig, self, args) => {
+      api.playBlackFlash();
+      return orig.apply(self, args);
+    });
+
+    // 2. Card-specific VFX audio router
+    wrapGlobal('playCardVFX', (orig, self, args) => {
+      const cardId = args[0];
+      if (['hired_goon_contract', 'mercenary_contract', 'armored_limousine'].includes(cardId)) {
+        api.playShield();
+      } else if (['astral_cataclysm', 'astral_singularity', 'arcane_strike', 'spark', 'volatile_reserve', 'overcharge_conduit', 'spellweaver_prism'].includes(cardId)) {
+        api.playArcane();
+      } else if (cardId === 'titans_cleave' || ['heavy_slash', 'shield_slam', 'patience_fury', 'battering_rampart', 'cleaving_execution'].includes(cardId)) {
+        api.playSlash(true);
+      } else if (cardId === 'shadow_step_mirage') {
+        api.playDodge();
+      } else if (cardId === 'temporal_paradox' || ['chrono_slash', 'rift_strike', 'stasis_surge', 'entropy_bolt', 'stasis_condenser', 'temporal_fracture'].includes(cardId)) {
+        api.playChrono();
+      } else if (cardId === 'sanguine_eclipse' || ['siphon_slash', 'serrated_cleave', 'blood_boil', 'blood_suck', 'flurry_of_fangs', 'hemorrhagic_rupture', 'crimson_frenzy'].includes(cardId)) {
+        api.playBlood();
+      } else if (['fireball', 'mana_overload'].includes(cardId)) {
+        api.playFire();
+      } else if (['wrench_toss', 'capacitor_discharge', 'thermite_rivets', 'scrap_cannon', 'scrap_salvage', 'overload_capacitor'].includes(cardId)) {
+        api.playSlash(false);
+      } else if (['toxic_needle', 'venom_spreader', 'venom_surge', 'catalytic_rupture', 'vial_stash', 'shadow_prep', 'phantom_ambush'].includes(cardId)) {
+        api.playPoison();
+      } else if (['barrier', 'iron_defense', 'fortify', 'smoke_screen', 'bastion_scrap', 'juggernaut_stance', 'shadow_step', 'stasis_bubble', 'reinforced_plating', 'weld_and_patch', 'reactive_armor', 'deja_vu', 'chrono_rewind', 'unbreakable_phalanx', 'smokebomb_barrage', 'velvet_kevlar'].includes(cardId)) {
+        api.playShield();
+      } else if (['restoration', 'coagulate', 'sanguine_ward', 'bootleg_tonic', 'adrenaline_syringe'].includes(cardId)) {
+        api.playHeal();
+      } else if (![
+        'tommy_gun_spray', 'drive_by_ambush', 'tommy_drum_extortion', 'chicago_typewriter', 'syndicate_hit_squad',
+        'protection_racket', 'money_laundering', 'syndicate_ledger', 'black_market_voucher', 'offers_you_cant_refuse',
+        'kingpins_ultimatum', 'golden_peacemaker', 'royal_flush', 'tesla_arc_pylon', 'arc_tesla_coil', 'astral_compass'
+      ].includes(cardId)) {
+        api.playArcane();
+      }
+      return orig.apply(self, args);
+    });
+
+    // 3. Tactile Hand, Vault, Scrap, Sequence & Victory/Defeat hooks
+    wrapGlobal('vaultCardFromHand', (orig, self, args) => {
+      const before = window.gameState ? gameState.hand.length : 0;
+      const res = orig.apply(self, args);
+      if (window.gameState && gameState.hand.length < before) api.playVault();
+      return res;
+    });
+
+    wrapGlobal('unvaultCardToHand', (orig, self, args) => {
+      const before = window.gameState ? gameState.vault.length : 0;
+      const res = orig.apply(self, args);
+      if (window.gameState && gameState.vault.length < before) api.playUnvault();
+      return res;
+    });
+
+    wrapGlobal('scrapCardFromHand', (orig, self, args) => {
+      const before = window.gameState ? gameState.scrappedThisTurn : 0;
+      const res = orig.apply(self, args);
+      if (window.gameState && gameState.scrappedThisTurn > before) api.playScrap();
+      return res;
+    });
+
+    wrapGlobal('playCardToSequence', (orig, self, args) => {
+      const before = window.gameState ? gameState.hand.length : 0;
+      const res = orig.apply(self, args);
+      if (window.gameState && gameState.hand.length < before) api.playSlot();
+      return res;
+    });
+
+    wrapGlobal('removeCardFromSequence', (orig, self, args) => {
+      const before = window.gameState ? gameState.hand.length : 0;
+      const res = orig.apply(self, args);
+      if (window.gameState && gameState.hand.length > before) api.playUnplace();
+      return res;
+    });
+
+    wrapGlobal('executeSequence', (orig, self, args) => {
+      const wasExec = window.gameState ? gameState.isExecuting : false;
+      const res = orig.apply(self, args);
+      if (window.gameState && !wasExec && gameState.isExecuting) api.playExecute();
+      return res;
+    });
+
+    wrapGlobal('checkPostActionVictoryOrDefeat', (orig, self, args) => {
+      const wasOver = window.gameState ? gameState.combatOver : false;
+      const res = orig.apply(self, args);
+      if (window.gameState && !wasOver && gameState.combatOver) {
+        if (gameState.player.hp <= 0) api.playDefeat();
+        else api.playVictory();
+      }
+      return res;
+    });
+
+    // 4. Auto-inject HUD Mute Button into .hud-right
+    const hudRight = document.querySelector('.battle-hud-top .hud-right');
+    if (hudRight && !document.getElementById('btn-hud-sound')) {
+      const btn = document.createElement('button');
+      btn.id = 'btn-hud-sound';
+      btn.className = 'btn-hud';
+      btn.title = 'Toggle Sound Effects';
+      btn.textContent = muted ? '🔇 Muted' : '🔊 SFX';
+      btn.onclick = () => {
+        const nowMuted = api.toggleMute();
+        btn.textContent = nowMuted ? '🔇 Muted' : '🔊 SFX';
+      };
+      hudRight.prepend(btn);
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', installHooks);
+  } else {
+    installHooks();
+  }
+
+  return api;
 })();
+
+window.SoundFX = SoundFX;
