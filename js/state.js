@@ -404,8 +404,8 @@ window.resetGameState = function(className, preserveCustomDeck = false) {
  window.gameState.turretBonusVolleysThisTurn = 0;
  window.gameState.reactiveArmorActive = false;
  window.gameState.spentHpThisTurn = false;
- window.gameState.cash = chosenClass === 'Mob Boss' ? (hasMobT1 ? 45 : 25) : 0;
- window.gameState.notoriety = chosenClass === 'Mob Boss' ? (hasMobT1 ? 15 : 0) : 0;
+window.gameState.cash = chosenClass === 'Mob Boss' ? (hasMobT1 ? 45 : 25) : 0;
+  window.gameState.notoriety = chosenClass === 'Mob Boss' ? 5 : 0;
  window.gameState.cashSpentAccumulator = 0;
  window.gameState.restockDiscount = 0;
  window.gameState.intimidateMultiplier = 1.0;
