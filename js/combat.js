@@ -122,14 +122,13 @@ function startBattleAtNode() {
  const hasArtT2 = getClassUnlockedArray('Artificer')[1];
  gameState.turrets = hasArtT2 ? [{ id: 1, hp: 10, maxHp: 10 }] : [];
  }
- gameState.classType === 'Mob Boss') {
- const hasMobT1 = getClassUnlockedArray('Mob Boss')[0];
- const hasMobT2 = getClassUnlockedArray('Mob Boss')[1];
- gameState.cash = Math.max(gameState.cash || 0, hasMobT1 ? 45 : 25);
- gameState.notoriety = Math.max(gameState.notoriety || 0, hasMobT1 ? 15 : 0);
- gameState.enforcers = hasMobT2 ? [{ id: 1, hp: 12, maxHp: 12 }] : [];
- }
-
+if (gameState.classType === 'Mob Boss') {
+    const hasMobT1 = getClassUnlockedArray('Mob Boss')[0];
+    const hasMobT2 = getClassUnlockedArray('Mob Boss')[1];
+    gameState.cash = Math.max(gameState.cash || 0, hasMobT1 ? 45 : 25);
+    gameState.notoriety = Math.max(gameState.notoriety || 0, 5);
+    gameState.enforcers = hasMobT2 ? [{ id: 1, hp: 12, maxHp: 12 }] : [];
+  }
  const defTier = gameState.passives.DEFLECTION || 0;
  if (defTier > 0) {
  addPlayerShield(defTier * 3);
