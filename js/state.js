@@ -98,6 +98,7 @@ const gameState = {
   deck: [],
   drawPileAction: [],
   drawPileTome: [],
+  discardPile: [],
   hand: [],
   sequence: [null, null, null],
   vault: [],
@@ -191,6 +192,11 @@ function resetGameState(classType) {
 
   for (const k of Object.keys(gameState.relics)) gameState.relics[k] = 0;
 
+  gameState.drawPileAction = [];
+  gameState.drawPileTome = [];
+  gameState.discardPile = [];
+  gameState.hand = [];
+  gameState.vault = [];
   gameState.maxVaultSlots = ['Mage', 'Warrior', 'Chronomancer', 'Mob Boss'].includes(classType) ? 2 : 1;
   gameState.scrapLimit = classType === 'Artificer' ? 2 : 1;
   gameState.bonusScrapLimitThisTurn = 0;
