@@ -1,4 +1,4 @@
-// --- MASTER SEVEN-CLASS + 32 EXPANSION + 10 CONTRABAND CARD DATABASE ---
+// --- MASTER SEVEN-CLASS + 48 EXPANSION + 10 CONTRABAND CARD DATABASE (v0.8.0) ---
 const CARD_DATABASE = {
  // Mage Cards (10 Starter/Core + 2 Expansion)
  arcane_strike: { id: 'arcane_strike', name: 'Arcane Strike', classTag: 'Mage', category: 'action', type: 'ATTACK', value: 10, cost: 1, costType: 'energy', rarity: 'basic', limit: 4, text: '+10 Arcane DMG' },
@@ -104,7 +104,27 @@ const CARD_DATABASE = {
  armored_limousine: { id: 'armored_limousine', name: 'Armored Limousine', classTag: 'Contraband', category: 'action', type: 'DEFEND', value: 22, cost: 1, costType: 'energy', rarity: 'contraband', contrabandTier: 4, basePrice: 36, isContraband: true, limit: 3, text: '+22 Shield, Lock Shield Decay & Hire 1 Enforcer (12 HP).' },
  golden_peacemaker: { id: 'golden_peacemaker', name: 'Golden Peacemaker', classTag: 'Contraband', category: 'action', type: 'ATTACK', value: 22, cost: 1, costType: 'energy', rarity: 'contraband', contrabandTier: 4, basePrice: 38, isContraband: true, limit: 3, text: '22 Gold-Slug DMG (2.5x on Crit!) & gain +$15 Cash on hit.' },
  godfathers_decree: { id: 'godfathers_decree', name: "Godfather's Decree", classTag: 'Contraband', category: 'tome', type: 'TOME', value: 20, cost: 1, costType: 'energy', rarity: 'mythic', contrabandTier: 5, basePrice: 48, isContraband: true, limit: 2, text: 'Mythic: 20 AoE DMG to all enemies, +20 Shield & +1 Battle Max Energy!' },
- royal_flush: { id: 'royal_flush', name: 'Royal Flush', classTag: 'Contraband', category: 'action', type: 'ATTACK', value: 25, cost: 1, costType: 'energy', rarity: 'mythic', contrabandTier: 5, basePrice: 50, isContraband: true, limit: 2, text: 'Mythic Cascade: 25 DMG, +15 Shield, +10 HP, +1⚡ & +$20 Cash!' }
+ royal_flush: { id: 'royal_flush', name: 'Royal Flush', classTag: 'Contraband', category: 'action', type: 'ATTACK', value: 25, cost: 1, costType: 'energy', rarity: 'mythic', contrabandTier: 5, basePrice: 50, isContraband: true, limit: 2, text: 'Mythic Cascade: 25 DMG, +15 Shield, +10 HP, +1⚡ & +$20 Cash!' },
+
+ // --- v0.8.0 ARTIFICER SPECIALIZED CONSTRUCT SCHEMATICS & SCRAP CARDS (8) ---
+ rail_turret_blueprint: { id: 'rail_turret_blueprint', name: 'Rail-Turret Schematic', classTag: 'Artificer', category: 'tome', type: 'TOME', constructType: 'rail_turret', value: 14, cost: 1, costType: 'energy', rarity: 'advanced', limit: 3, isExpansion: true, text: 'Deploy Heavy Rail-Turret (12 HP: fires 14 Armor-Piercing DMG/turn).' },
+ inferno_turret_blueprint: { id: 'inferno_turret_blueprint', name: 'Inferno Turret Blueprint', classTag: 'Artificer', category: 'tome', type: 'TOME', constructType: 'flamethrower_turret', value: 5, cost: 1, costType: 'energy', rarity: 'advanced', limit: 3, isExpansion: true, text: 'Deploy Inferno Flamethrower (11 HP: 5 AoE DMG + 3 Burn to all foes).' },
+ aegis_barrier_blueprint: { id: 'aegis_barrier_blueprint', name: 'Aegis Barrier Blueprint', classTag: 'Artificer', category: 'tome', type: 'TOME', constructType: 'aegis_barrier', value: 6, cost: 1, costType: 'energy', rarity: 'basic', limit: 4, isExpansion: true, text: 'Deploy Aegis Force-Barrier (16 HP: +6 Shield/turn & 65% intercept).' },
+ tesla_coil_blueprint: { id: 'tesla_coil_blueprint', name: 'Tesla Coil Schematic', classTag: 'Artificer', category: 'tome', type: 'TOME', constructType: 'tesla_coil', value: 8, cost: 1, costType: 'energy', rarity: 'advanced', limit: 3, isExpansion: true, text: 'Deploy Arc Tesla Coil (10 HP: 8 DMG, 4 Chain DMG & +1 Scrap Part/turn).' },
+ goliath_mech_blueprint: { id: 'goliath_mech_blueprint', name: 'Goliath Mech Blueprint', classTag: 'Artificer', category: 'tome', type: 'TOME', constructType: 'goliath_mech', value: 16, cost: 2, costType: 'energy', rarity: 'advanced', limit: 2, isExpansion: true, text: 'Deploy Goliath Battle Mech (20 HP: 16 Heavy DMG & +6 Shield/turn).' },
+ scrap_recycler: { id: 'scrap_recycler', name: 'Scrap Recycler', classTag: 'Artificer', category: 'action', type: 'DEFEND', value: 7, cost: 1, costType: 'energy', rarity: 'basic', limit: 4, isExpansion: true, text: '+7 Shield & +1 Part. If Scrapped: +2⚡ & Draw 1 Card.' },
+ salvage_magnet: { id: 'salvage_magnet', name: 'Salvage Magnet', classTag: 'Artificer', category: 'action', type: 'ATTACK', value: 11, cost: 1, costType: 'energy', rarity: 'basic', limit: 4, isExpansion: true, text: '11 DMG & +1 Part (+1 extra Part if Scrapped).' },
+ overdrive_core: { id: 'overdrive_core', name: 'Overdrive Core', classTag: 'Artificer', category: 'tome', type: 'TOME', value: 2, cost: 1, costType: 'energy', rarity: 'advanced', limit: 3, isExpansion: true, text: '+2 Parts, heal all Constructs +6 HP & trigger +1 immediate volley!' },
+
+ // --- v0.8.0 CLASS & NEUTRAL SIGNATURE CARDS (8) ---
+ void_cataclysm: { id: 'void_cataclysm', name: 'Void Cataclysm', classTag: 'Mage', category: 'tome', type: 'ATTACK', value: 30, cost: 3, costType: 'mana', rarity: 'advanced', limit: 2, isExpansion: true, text: 'Costs 3 Mana: 30 Arcane DMG & refund +1 Mana on kill.' },
+ titans_counterblow: { id: 'titans_counterblow', name: "Titan's Counterblow", classTag: 'Warrior', category: 'action', type: 'ATTACK', value: 14, cost: 2, costType: 'energy', rarity: 'advanced', limit: 3, isExpansion: true, text: '14 DMG + 50% of your current Shield as bonus DMG (keeps Shield).' },
+ nightblade_ambush: { id: 'nightblade_ambush', name: 'Nightblade Ambush', classTag: 'Rogue', category: 'action', type: 'ATTACK', value: 14, poison: 3, cost: 1, costType: 'energy', rarity: 'advanced', limit: 3, isExpansion: true, text: '14 DMG & +3 Poison. Grants +1⚡ if enemy is Poisoned.' },
+ paradox_anchor: { id: 'paradox_anchor', name: 'Paradox Anchor', classTag: 'Chronomancer', category: 'tome', type: 'TOME', value: 10, cost: 1, costType: 'chronos', rarity: 'advanced', limit: 3, isExpansion: true, text: 'Costs 1 Chronos: +10 Shield, +1⚡ & Draw 1 Tome Card.' },
+ crimson_ascension: { id: 'crimson_ascension', name: 'Crimson Ascension', classTag: 'Blood Reaver', category: 'action', type: 'ATTACK', value: 16, cost: 4, hpCost: 4, costType: 'hp', rarity: 'advanced', limit: 3, isExpansion: true, text: 'Costs 4 HP: 16 DMG & heal +8 HP (+14 HP if below 50% HP).' },
+ syndicate_armory: { id: 'syndicate_armory', name: 'Syndicate Armory', classTag: 'Mob Boss', category: 'tome', type: 'TOME', value: 12, cost: 15, costType: 'cash', rarity: 'advanced', limit: 3, isExpansion: true, text: 'Costs $15 Cash: +12 Shield, +3 ★ & Enforcers fire +1 volley!' },
+ chrono_catalyst: { id: 'chrono_catalyst', name: 'Chrono Catalyst', classTag: 'Neutral', category: 'tome', type: 'TOME', value: 1, cost: 0, costType: 'energy', rarity: 'advanced', limit: 3, isExpansion: true, text: '0⚡: Gain +1 Energy, +6 Shield & Draw 1 Card.' },
+ astral_resonance: { id: 'astral_resonance', name: 'Astral Resonance', classTag: 'Neutral', category: 'action', type: 'ATTACK', value: 15, cost: 2, costType: 'energy', rarity: 'advanced', limit: 3, isExpansion: true, text: '15 Astral DMG to all enemies & +8 Shield.' }
 };
 
 
@@ -119,41 +139,57 @@ const CLASS_THEMES = {
  Neutral: { primaryHex: 0x94a3b8, cssColor: '#cbd5e1', name: 'NEUTRAL' }
 };
 
+const CONSTRUCT_CATALOG = {
+ auto_turret: { type: 'auto_turret', name: 'Auto-Turret Drone', maxHp: 10, atk: 6, burn: 2, shield: 0, interceptRatio: 0.50, desc: '6 DMG + 2 Burn/turn & 50% intercept' },
+ rail_turret: { type: 'rail_turret', name: 'Heavy Rail-Turret', maxHp: 12, atk: 14, burn: 0, shield: 0, interceptRatio: 0.45, desc: '14 Armor-Piercing DMG/turn' },
+ flamethrower_turret: { type: 'flamethrower_turret', name: 'Inferno Flamethrower', maxHp: 11, atk: 5, burn: 3, aoe: true, shield: 0, interceptRatio: 0.45, desc: '5 AoE DMG + 3 Burn to all enemies' },
+ aegis_barrier: { type: 'aegis_barrier', name: 'Aegis Force-Barrier', maxHp: 16, atk: 0, burn: 0, shield: 6, interceptRatio: 0.65, desc: '+6 Shield/turn & 65% intercept' },
+ tesla_coil: { type: 'tesla_coil', name: 'Arc Tesla Coil', maxHp: 10, atk: 8, chainDmg: 4, partsGain: 1, shield: 0, interceptRatio: 0.40, desc: '8 DMG + 4 Chain & +1 Part/turn' },
+ goliath_mech: { type: 'goliath_mech', name: 'Goliath Battle Mech', maxHp: 20, atk: 16, burn: 0, shield: 6, interceptRatio: 0.60, desc: '16 Heavy DMG & +6 Shield/turn' }
+};
+
 const MASTERY_DEFINITIONS = {
  Mage: [
- { title: 'T1: Arcane Synergy', effect: '+2 Mana Turn Gain', req: 'Unlocked by default', key: 0 },
- { title: 'T2: Mana Overflow', effect: '+2 Base Max Mana', req: 'Req: 10 Enemies Killed', reqVal: 10, key: 1 },
- { title: 'T3: Archmage Supremacy', effect: 'Arcane Ult deals +15 DMG', req: 'Req: Complete 3 Runs', reqVal: 3, isRun: true, key: 2 }
+  { title: 'T1: Arcane Synergy', effect: '+2 Mana Turn Gain', req: 'Unlocked by default', key: 0 },
+  { title: 'T2: Mana Overflow', effect: '+2 Base Max Mana', req: 'Req: 10 Enemies Killed', reqVal: 10, key: 1 },
+  { title: 'T3: Archmage Supremacy', effect: 'Arcane Tome spells deal +20% DMG', req: 'Req: Complete 3 Runs', reqVal: 3, isRun: true, key: 2 },
+  { title: 'T4: Astral Omniscience', effect: 'Start combat with +2 Mana & +1 Temp Slot', req: 'Req: Complete 5 Runs', reqVal: 5, isRun: true, key: 3 }
  ],
  Warrior: [
- { title: 'T1: Heavy Iron', effect: '+20 Max HP & +5 Shield', req: 'Unlocked by default', key: 0 },
- { title: 'T2: Turtle Momentum', effect: '2 turns no HP loss → 1.5x stats', req: 'Req: 15 Enemies Killed', reqVal: 15, key: 1 },
- { title: 'T3: Second Wind', effect: 'Revive at 20% HP + 10 DMG', req: 'Req: Complete 3 Runs', reqVal: 3, isRun: true, key: 2 }
+  { title: 'T1: Heavy Iron', effect: '+20 Max HP & +5 Shield', req: 'Unlocked by default', key: 0 },
+  { title: 'T2: Turtle Momentum', effect: '+25% DMG when Shield >= 15', req: 'Req: 15 Enemies Killed', reqVal: 15, key: 1 },
+  { title: 'T3: Second Wind', effect: 'Revive once per battle at 20% HP + 15 Shield', req: 'Req: Complete 3 Runs', reqVal: 3, isRun: true, key: 2 },
+  { title: 'T4: Colossal Bastion', effect: 'Retain 75% Shield between turns & +4 Thorns', req: 'Req: Complete 5 Runs', reqVal: 5, isRun: true, key: 3 }
  ],
  Rogue: [
- { title: 'T1: Shadow Counter', effect: '20% Dodge. Dodge & Evasion cards trigger 100% Crit (2x DMG)', req: 'Unlocked by default', key: 0 },
- { title: 'T2: Assassin Mastery', effect: '+1 Energy & Smoke Screen', req: 'Req: 12 Enemies Killed', reqVal: 12, key: 1 },
- { title: 'T3: Executioner', effect: 'Execute enemies <20% HP & heal 80%', req: 'Req: Complete 3 Runs', reqVal: 3, isRun: true, key: 2 }
+  { title: 'T1: Shadow Counter', effect: '20% Dodge. Dodge & Evasion cards trigger 100% Crit (2x DMG)', req: 'Unlocked by default', key: 0 },
+  { title: 'T2: Assassin Mastery', effect: '+1 Base Energy & +10% Crit Chance', req: 'Req: 12 Enemies Killed', reqVal: 12, key: 1 },
+  { title: 'T3: Executioner', effect: 'Execute enemies <20% HP & heal +10 HP on kill', req: 'Req: Complete 3 Runs', reqVal: 3, isRun: true, key: 2 },
+  { title: 'T4: Phantom Sovereign', effect: 'First Attack each turn is a guaranteed 2.5x Crit', req: 'Req: Complete 5 Runs', reqVal: 5, isRun: true, key: 3 }
  ],
  Chronomancer: [
- { title: 'T1: Temporal Anchor', effect: 'Start combat with +1 Chronos. Unvaulted cards deal +10% DMG this turn', req: 'Unlocked by default', key: 0 },
- { title: 'T2: Accelerated Timeline', effect: 'Slot 1 casts instantly when slotted; carry over up to 1 unspent Energy', req: 'Req: 12 Enemies Killed', reqVal: 12, key: 1 },
- { title: 'T3: Sovereign of Time', effect: 'Rest & Charge grants +2 Temp Slots (5 total) & triggers all Vaulted cards', req: 'Req: Complete 3 Runs', reqVal: 3, isRun: true, key: 2 }
+  { title: 'T1: Temporal Anchor', effect: 'Start combat with +1 Chronos. Unvaulted cards deal +10% DMG', req: 'Unlocked by default', key: 0 },
+  { title: 'T2: Accelerated Timeline', effect: 'Slot 1 resolves with 0ms delay during execution; carry over 1 unspent Energy', req: 'Req: 12 Enemies Killed', reqVal: 12, key: 1 },
+  { title: 'T3: Sovereign of Time', effect: 'Rest & Charge grants +1 Temp Slot & echoes all Vaulted cards', req: 'Req: Complete 3 Runs', reqVal: 3, isRun: true, key: 2 },
+  { title: 'T4: Eternity Weaver', effect: '+1 Max Chronos (4) & unvaulting grants +1⚡ once/turn', req: 'Req: Complete 5 Runs', reqVal: 5, isRun: true, key: 3 }
  ],
  Artificer: [
- { title: 'T1: Master Salvager', effect: '2 Scrap/turn. Scrapping any card fires a 4 DMG bolt at an enemy', req: 'Unlocked by default', key: 0 },
- { title: 'T2: Twin-Linked Chassis', effect: 'Start combat with 1 Auto-Turret (10 HP); Turret shots inherit Crit Chance', req: 'Req: 15 Enemies Killed', reqVal: 15, key: 1 },
- { title: 'T3: Singularity Core', effect: 'Every 4th card Scrapped triggers a 20 AoE DMG & +15 Shield Meltdown', req: 'Req: Complete 3 Runs', reqVal: 3, isRun: true, key: 2 }
+  { title: 'T1: Master Salvager', effect: '2 Scrap/turn, +2 Parts/Scrap & 4 DMG Salvage Bolt', req: 'Unlocked by default', key: 0 },
+  { title: 'T2: Twin-Linked Chassis', effect: 'Start combat with 1 Auto-Turret (10 HP); Constructs inherit Crit Chance', req: 'Req: 15 Enemies Killed', reqVal: 15, key: 1 },
+  { title: 'T3: Singularity Core', effect: 'Every 4th card Scrapped triggers a 20 AoE DMG & +15 Shield Meltdown', req: 'Req: Complete 3 Runs', reqVal: 3, isRun: true, key: 2 },
+  { title: 'T4: Grand Architect', effect: 'Constructs deal +35% DMG & start combat with +2 Scrap Parts', req: 'Req: Complete 5 Runs', reqVal: 5, isRun: true, key: 3 }
  ],
  'Blood Reaver': [
- { title: 'T1: Sanguine Engine', effect: 'Shield gains convert 1:1 to Overheal HP (+25 cap). Spending HP gives +10% Crit', req: 'Unlocked by default', key: 0 },
- { title: 'T2: Crimson Resonance', effect: 'Hemorrhaging enemies take +25% Crit DMG; bleed kills heal 12 HP', req: 'Req: 15 Enemies Killed', reqVal: 15, key: 1 },
- { title: 'T3: Undying Sovereign', effect: 'Below 40% HP: +30% base Lifesteal & Crits grant 100% Lifesteal', req: 'Req: Complete 3 Runs', reqVal: 3, isRun: true, key: 2 }
+  { title: 'T1: Sanguine Engine', effect: 'Shield gains convert 1:1 to Overheal HP (+25 cap). Spending HP gives +10% Crit', req: 'Unlocked by default', key: 0 },
+  { title: 'T2: Crimson Resonance', effect: 'Hemorrhaging enemies take +25% Crit DMG; bleed kills heal 12 HP', req: 'Req: 15 Enemies Killed', reqVal: 15, key: 1 },
+  { title: 'T3: Undying Sovereign', effect: 'Below 40% HP: +30% base Lifesteal & Crits grant 100% Lifesteal', req: 'Req: Complete 3 Runs', reqVal: 3, isRun: true, key: 2 },
+  { title: 'T4: Crimson Avatar', effect: '+40 Overheal cap & +1 Base Energy when below 75% HP', req: 'Req: Complete 5 Runs', reqVal: 5, isRun: true, key: 3 }
  ],
  'Mob Boss': [
- { title: 'T1: Syndicate Boss', effect: '$45 starting Cash, 15 ★, +$20 Cash & +2 ★ on Scrap, +$8 Cash on Crit/Kill', req: 'Unlocked by default', key: 0 },
- { title: 'T2: Made Men', effect: 'Start with 1 Hired Enforcer; crew deals +3 DMG/member & retaliates when hit', req: 'Req: 15 Enemies Killed', reqVal: 15, key: 1 },
- { title: 'T3: Untouchable Kingpin', effect: '-25% Black Market prices; +4 Shield per $10 spent; +$25 Bounty Hit payout', req: 'Req: Complete 3 Runs', reqVal: 3, isRun: true, key: 2 }
+  { title: 'T1: Syndicate Boss', effect: '$45 starting Cash, 15 ★, +$20 Cash & +2 ★ on Scrap, +$8 Cash on Crit/Kill', req: 'Unlocked by default', key: 0 },
+  { title: 'T2: Made Men', effect: 'Start with 1 Hired Enforcer; crew deals +3 DMG/member & retaliates when hit', req: 'Req: 15 Enemies Killed', reqVal: 15, key: 1 },
+  { title: 'T3: Untouchable Kingpin', effect: '-25% Black Market prices; +4 Shield per $10 spent; +$25 Bounty Hit payout', req: 'Req: Complete 3 Runs', reqVal: 3, isRun: true, key: 2 },
+  { title: 'T4: Capo Di Tutti Capi', effect: 'Start combat with 2 Enforcers & +15 ★ Notoriety', req: 'Req: Complete 5 Runs', reqVal: 5, isRun: true, key: 3 }
  ]
 };
 
@@ -163,7 +199,10 @@ const RELIC_CATALOG = {
  DEFLECTION: { name: 'Deflection', rarity: '⚪ COMMON', cssClass: 'border-common', desc: '+3 Shield per turn start per tier. Reflects 50% damage at Tier 3.' },
  SHADOW_WEAVE: { name: 'Shadow Weave', rarity: '🔷 RARE', cssClass: 'border-rare', desc: '+5% Dodge Chance per tier. Dodging heals 5% HP at Tier 3.' },
  FRENZY: { name: 'Blood Frenzy', rarity: '💜 EPIC', cssClass: 'border-epic', desc: '+0.5% DMG per 1% missing HP per tier. Lifesteal at Tier 3.' },
- IGNITION: { name: 'Ignition Engine', rarity: '🔷 RARE', cssClass: 'border-rare', desc: 'Every 3rd card deals +5 Burn DMG per tier to target.' }
+ IGNITION: { name: 'Ignition Engine', rarity: '🔷 RARE', cssClass: 'border-rare', desc: 'Slot 3 cards deal +5 Burn DMG per tier to target.' },
+ CHRONO_HOURGLASS: { name: 'Chrono Hourglass', rarity: '🔷 RARE', cssClass: 'border-rare', desc: 'Unvaulted cards gain +15% DMG per tier. Tier 3 grants +1 Energy on unvault.' },
+ AEGIS_OVERCHARGER: { name: 'Aegis Overcharger', rarity: '💜 EPIC', cssClass: 'border-epic', desc: '+15% Shield & Construct HP per tier. Tier 3 grants +6 Shield on Construct fire.' },
+ SYNDICATE_SIGNET: { name: 'Syndicate Signet', rarity: '👑 LEGENDARY', cssClass: 'border-legendary', desc: '+10% Gold & Cash rewards per tier. Tier 3 grants +10% Crit Chance.' }
 };
 
 const STAGE_THEMES = [
@@ -171,5 +210,50 @@ const STAGE_THEMES = [
  { bg: 'radial-gradient(circle at center, #1e1b4b 0%, #070a12 100%)' },
  { bg: 'radial-gradient(circle at center, #064e3b 0%, #070a12 100%)' },
  { bg: 'radial-gradient(circle at center, #701a75 0%, #070a12 100%)' },
- { bg: 'radial-gradient(circle at center, #451a03 0%, #070a12 100%)' }
+ { bg: 'radial-gradient(circle at center, #451a03 0%, #070a12 100%)' },
+ { bg: 'radial-gradient(circle at center, #0f172a 0%, #020617 100%)' },
+ { bg: 'radial-gradient(circle at center, #3b0764 0%, #050811 100%)' }
 ];
+
+const STAGE_II_THEMES = [
+ { bg: 'radial-gradient(circle at center, #311042 0%, #05060f 100%)' },
+ { bg: 'radial-gradient(circle at center, #172554 0%, #040712 100%)' },
+ { bg: 'radial-gradient(circle at center, #134e4a 0%, #04090e 100%)' },
+ { bg: 'radial-gradient(circle at center, #4c1d95 0%, #050611 100%)' },
+ { bg: 'radial-gradient(circle at center, #831843 0%, #07050e 100%)' },
+ { bg: 'radial-gradient(circle at center, #1e1b4b 0%, #03050c 100%)' },
+ { bg: 'radial-gradient(circle at center, #581c87 0%, #02040a 100%)' }
+];
+
+const STAGE_I_BOSSES = [
+ {
+  id: 1, name: 'VOID OVERLORD', hp: 120, maxHp: 120, atk: 16, poison: 0, hemorrhage: 0, burn: 0, hasBountyLock: false, isBoss: true,
+  sequence: [
+   { name: 'Void Cataclysm', type: 'ATTACK', value: 18, speed: 1.2 },
+   { name: 'Abyssal Aegis', type: 'DEFEND', value: 14, speed: 1.0 }
+  ]
+ },
+ {
+  id: 1, name: 'CHRONO-LICH MALAKOR', hp: 115, maxHp: 115, atk: 15, poison: 0, hemorrhage: 0, burn: 0, hasBountyLock: false, isBoss: true,
+  sequence: [
+   { name: 'Temporal Collapse', type: 'ATTACK', value: 17, speed: 1.3 },
+   { name: 'Soul Phylactery', type: 'HEAL', value: 14, speed: 1.1 }
+  ]
+ },
+ {
+  id: 1, name: 'IRON COLOSSUS V-9', hp: 135, maxHp: 135, atk: 16, poison: 0, hemorrhage: 0, burn: 0, hasBountyLock: false, isBoss: true,
+  sequence: [
+   { name: 'Siege Cannon', type: 'ATTACK', value: 20, speed: 1.1 },
+   { name: 'Nano-Repair', type: 'HEAL', value: 12, speed: 1.0 }
+  ]
+ }
+];
+
+const STAGE_II_FINAL_BOSS = {
+ id: 1, name: 'OMEGA ARCHITECT: ETERNITY PRIME', hp: 185, maxHp: 185, atk: 22, poison: 0, hemorrhage: 0, burn: 0, hasBountyLock: false, isBoss: true,
+ sequence: [
+  { name: 'Astral Annihilation', type: 'ATTACK', value: 24, speed: 1.4 },
+  { name: 'Genesis Reconstruction', type: 'HEAL', value: 16, speed: 1.2 },
+  { name: 'Singularity Beam', type: 'ATTACK', value: 20, speed: 1.3 }
+ ]
+};
