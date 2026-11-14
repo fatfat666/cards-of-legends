@@ -1,4 +1,4 @@
-// --- ARTIFICER FOUNDRY UI: TURRETS, MECHS, BUILDINGS & 6-CONSTRUCT SCHEMATICS ---
+// --- ARTIFICER FOUNDRY UI: CARD-UNLOCKED SCHEMATICS, TURRETS, MECHS & BUILDINGS ---
 (function () {
   // 1. Inject Blueprint HUD & Modal Styles (MacBook 100dvh safe)
   if (!document.getElementById('artificer-foundry-css')) {
@@ -117,7 +117,7 @@
 
       .af-blueprint-panel {
         width: 100%;
-        max-width: 820px;
+        max-width: 840px;
         max-height: 88dvh;
         overflow-y: auto;
         background-color: #091326;
@@ -138,16 +138,23 @@
         justify-content: space-between;
         border-bottom: 1px solid rgba(56, 189, 248, 0.25);
         padding-bottom: 10px;
-        margin-bottom: 12px;
+        margin-bottom: 8px;
+        gap: 8px;
+        flex-wrap: wrap;
       }
       .af-panel-title {
-        font-size: 1.05rem;
+        font-size: 1.02rem;
         font-weight: 900;
         letter-spacing: 0.04em;
         color: #38bdf8;
         display: flex;
         align-items: center;
         gap: 8px;
+      }
+      .af-panel-subtitle {
+        font-size: 0.74rem;
+        color: #94a3b8;
+        margin-bottom: 10px;
       }
       .af-parts-pill {
         background: rgba(245, 158, 11, 0.16);
@@ -198,25 +205,30 @@
       /* 6-Construct Blueprint Grid */
       .af-schematics-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(235px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
         gap: 10px;
       }
       .af-bp-card {
-        background: rgba(15, 23, 42, 0.92);
+        background: rgba(15, 23, 42, 0.94);
         border-radius: 10px;
         padding: 11px 12px;
         display: flex;
         flex-direction: column;
         justify-content: space-between;
-        gap: 8px;
+        gap: 7px;
         position: relative;
+        transition: border-color 0.15s ease, opacity 0.15s ease;
       }
       .af-bp-card.archetype-turret { border: 1px solid rgba(56, 189, 248, 0.55); }
       .af-bp-card.archetype-mech { border: 1px solid rgba(245, 158, 11, 0.6); }
       .af-bp-card.archetype-building { border: 1px solid rgba(16, 185, 129, 0.6); }
       .af-bp-card.locked {
-        opacity: 0.52;
-        filter: grayscale(0.65);
+        border-color: rgba(100, 116, 139, 0.45);
+        background: rgba(9, 13, 24, 0.88);
+      }
+      .af-bp-card.locked .af-bp-desc,
+      .af-bp-card.locked .af-bp-overcharge {
+        opacity: 0.55;
       }
 
       .af-bp-top {
@@ -246,8 +258,30 @@
         font-size: 0.88rem;
         font-weight: 900;
         color: #f8fafc;
-        margin-top: 2px;
+        margin-top: 3px;
       }
+
+      /* Card Form Unlock Requirement Pill */
+      .af-card-req {
+        font-size: 0.69rem;
+        font-weight: 700;
+        padding: 4px 8px;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+      }
+      .af-card-req.req-locked {
+        background: rgba(239, 68, 68, 0.12);
+        border: 1px dashed rgba(248, 113, 113, 0.45);
+        color: #fca5a5;
+      }
+      .af-card-req.req-unlocked {
+        background: rgba(34, 197, 94, 0.14);
+        border: 1px solid rgba(74, 222, 128, 0.45);
+        color: #86efac;
+      }
+
       .af-bp-desc {
         font-size: 0.75rem;
         color: #cbd5e1;
@@ -266,6 +300,7 @@
         align-items: center;
         justify-content: space-between;
         margin-top: 2px;
+        gap: 6px;
       }
       .af-bp-status {
         font-size: 0.68rem;
@@ -284,9 +319,12 @@
         padding: 4px 9px;
         border-radius: 6px;
         cursor: pointer;
+        white-space: nowrap;
       }
       .af-bp-craft-btn:disabled {
-        opacity: 0.4;
+        background: rgba(30, 41, 59, 0.9);
+        border-color: rgba(100, 116, 139, 0.4);
+        color: #94a3b8;
         cursor: not-allowed;
       }
     `;
@@ -294,12 +332,14 @@
   }
 
   // =========================================================================
-  // 2. CANONICAL 6-CONSTRUCT FOUNDRY SCHEMATICS & ARCHETYPE CLASSIFIER
+  // 2. CANONICAL 6-CONSTRUCT FOUNDRY SCHEMATICS & CARD-FORM UNLOCK ENGINE
   // =========================================================================
   const DEFAULT_FOUNDRY_SCHEMATICS = [
     {
       id: 'auto_turret',
       name: 'Auto-Turret Mk.I',
+      cardForm: 'Auto-Turret / Sentry Card',
+      keywords: ['auto-turret', 'auto turret', 'sentry', 'gatling', 'turret mk', 'deploy turret'],
       archetype: 'turret',
       icon: '🔫',
       cost: 2,
@@ -309,6 +349,8 @@
     {
       id: 'tesla_coil',
       name: 'Arc Tesla Coil',
+      cardForm: 'Arc Tesla / Shock Coil Card',
+      keywords: ['tesla', 'arc coil', 'shock turret', 'volt turret', 'lightning coil'],
       archetype: 'turret',
       icon: '⚡',
       cost: 3,
@@ -318,6 +360,8 @@
     {
       id: 'aegis_mech',
       name: 'Aegis Vanguard Mech',
+      cardForm: 'Aegis / Vanguard Mech Card',
+      keywords: ['aegis mech', 'vanguard', 'guard mech', 'shield mech', 'defender mech', 'exo'],
       archetype: 'mech',
       icon: '🤖',
       cost: 3,
@@ -328,6 +372,8 @@
     {
       id: 'siege_walker',
       name: 'Hellfire Siege Walker',
+      cardForm: 'Siege Walker / Hellfire Mech Card',
+      keywords: ['siege', 'walker', 'hellfire', 'mortar', 'juggernaut', 'titan mech'],
       archetype: 'mech',
       icon: '🦾',
       cost: 4,
@@ -338,6 +384,8 @@
     {
       id: 'scrap_foundry',
       name: 'Automated Scrap Foundry',
+      cardForm: 'Scrap Foundry / Fabricator Card',
+      keywords: ['scrap foundry', 'foundry', 'fabricator', 'salvage bay', 'assembly', 'generator'],
       archetype: 'building',
       icon: '🏭',
       cost: 2,
@@ -347,6 +395,8 @@
     {
       id: 'aegis_pylon',
       name: 'Chrono-Shield Pylon',
+      cardForm: 'Shield Pylon / Barrier Tower Card',
+      keywords: ['pylon', 'chrono-shield', 'barrier tower', 'shield tower', 'bunker', 'fortress'],
       archetype: 'building',
       icon: '🗼',
       cost: 3,
@@ -369,6 +419,96 @@
     return Array.isArray(list) ? list : [];
   }
 
+  // Gather every card currently in the player's run (deck, hand, piles, vault, sequence)
+  function collectPlayerCards() {
+    if (typeof gameState === 'undefined' || !gameState) return [];
+    const pools = [
+      gameState.deck,
+      gameState.hand,
+      gameState.drawPile,
+      gameState.discardPile,
+      gameState.vault,
+      gameState.sequence,
+      gameState.exhaustPile
+    ];
+    const all = [];
+    pools.forEach(pool => {
+      if (Array.isArray(pool)) {
+        pool.forEach(c => {
+          if (c) all.push(typeof c === 'string' ? { name: c } : c);
+        });
+      }
+    });
+    return all;
+  }
+
+  function matchCardToSchematic(card, bp) {
+    if (!card || !bp) return false;
+    const cName = String(card.name || card.title || '').toLowerCase();
+    const cId = String(card.id || '').toLowerCase();
+    const cDesc = String(card.desc || card.description || '').toLowerCase();
+    const cTags = `${card.type || ''} ${card.subType || ''} ${card.tag || ''}`.toLowerCase();
+
+    if (!cName && !cId) return false;
+
+    // Direct ID or keyword match
+    if (cId && cId.includes(bp.id)) return true;
+    if (Array.isArray(bp.keywords) && bp.keywords.some(kw => cName.includes(kw) || cId.includes(kw))) {
+      return true;
+    }
+
+    // Fallback: match generic Artificer summon cards to their archetype slot
+    const isSummonCard = /deploy|summon|construct|build|turret|mech|walker|foundry|pylon|tower/.test(`${cName} ${cDesc} ${cTags}`);
+    if (isSummonCard) {
+      const cardArchetype = classifyConstruct({ name: cName, type: cTags });
+      if (bp.id === 'auto_turret' && cardArchetype === 'turret' && /turret|sentry|gun|cannon/.test(cName)) return true;
+      if (bp.id === 'aegis_mech' && cardArchetype === 'mech' && /mech|suit|golem/.test(cName)) return true;
+      if (bp.id === 'scrap_foundry' && cardArchetype === 'building' && /building|forge|bay|reactor/.test(cName)) return true;
+    }
+
+    return false;
+  }
+
+  // Scan deck & piles to unlock schematics whose Card Form the player has obtained
+  function syncSchematicUnlocksFromCards(allowToast = true) {
+    if (typeof gameState === 'undefined' || !gameState) return {};
+    if (gameState.classType !== 'Artificer' && getActiveConstructs().length === 0) return {};
+
+    if (!Array.isArray(gameState.unlockedSchematics)) {
+      gameState.unlockedSchematics = [];
+    }
+
+    const cards = collectPlayerCards();
+    const matchedCardByBp = {};
+    const newlyUnlocked = [];
+
+    DEFAULT_FOUNDRY_SCHEMATICS.forEach(bp => {
+      const foundCard = cards.find(c => matchCardToSchematic(c, bp));
+      if (foundCard) {
+        matchedCardByBp[bp.id] = foundCard.name || foundCard.title || bp.name;
+        if (!gameState.unlockedSchematics.includes(bp.id)) {
+          gameState.unlockedSchematics.push(bp.id);
+          newlyUnlocked.push(bp);
+        }
+      }
+    });
+
+    // Notify only when a brand-new schematic card is drafted/gained mid-run
+    if (allowToast && gameState.__schematicsBootstrapped && newlyUnlocked.length > 0) {
+      newlyUnlocked.forEach(bp => {
+        if (typeof showToast === 'function') {
+          showToast(`📐 Schematic Unlocked: ${bp.name}!`, 'success');
+        }
+      });
+    }
+
+    if (cards.length > 0) {
+      gameState.__schematicsBootstrapped = true;
+    }
+
+    return matchedCardByBp;
+  }
+
   function getPartsInfo() {
     if (typeof gameState !== 'undefined' && gameState) {
       if (typeof gameState.parts === 'number') {
@@ -387,32 +527,23 @@
   }
 
   function getSchematicsRoster() {
+    const matchedCardMap = syncSchematicUnlocksFromCards(true);
     const active = getActiveConstructs();
-    const stateSchems = (typeof gameState !== 'undefined' && gameState)
-      ? (gameState.schematics || gameState.foundrySchematics || gameState.unlockedSchematics)
-      : null;
+    const unlockedIds = (typeof gameState !== 'undefined' && gameState && Array.isArray(gameState.unlockedSchematics))
+      ? gameState.unlockedSchematics
+      : [];
 
-    const baseList = (Array.isArray(stateSchems) && stateSchems.length > 0)
-      ? stateSchems.map((s, i) => {
-          if (typeof s === 'string') {
-            const match = DEFAULT_FOUNDRY_SCHEMATICS.find(d => d.id === s || d.name.toLowerCase() === s.toLowerCase());
-            return match || { id: `custom_${i}`, name: s, archetype: classifyConstruct({ name: s }), icon: '⚙️', cost: 2, desc: 'Foundry Construct Schematic.', overcharge: 'Overcharge: Enhances construct output.' };
-          }
-          return Object.assign({
-            archetype: classifyConstruct(s),
-            icon: classifyConstruct(s) === 'mech' ? '🤖' : (classifyConstruct(s) === 'building' ? '🏭' : '🔫'),
-            cost: s.cost || s.partCost || 2,
-            desc: s.desc || s.description || 'Deployable Artificer Construct.',
-            overcharge: s.overcharge || 'Overcharge: Boosts output & durability.'
-          }, s);
-        })
-      : DEFAULT_FOUNDRY_SCHEMATICS;
-
-    return baseList.map(bp => {
+    return DEFAULT_FOUNDRY_SCHEMATICS.map(bp => {
+      const unlocked = unlockedIds.includes(bp.id) || Boolean(matchedCardMap[bp.id]);
       const deployedCount = active.filter(c =>
         c && String(c.name || '').toLowerCase().includes(bp.name.split(' ')[0].toLowerCase())
       ).length;
-      return Object.assign({}, bp, { unlocked: bp.unlocked !== false, deployedCount });
+
+      return Object.assign({}, bp, {
+        unlocked,
+        ownedCardName: matchedCardMap[bp.id] || null,
+        deployedCount
+      });
     });
   }
 
@@ -451,7 +582,6 @@
       rig.__phase = idx * 0.9;
 
       if (kind === 'mech') {
-        // --- MECH: Heavy Vanguard Walker positioned ahead of the Artificer ---
         rig.x = Math.min(w * 0.48, Math.round(heroX + 68 + mechIdx * 42));
         rig.y = Math.min(h - 24, Math.round(heroY + 6 - mechIdx * 16));
         rig.__baseY = rig.y;
@@ -460,7 +590,6 @@
         const armorColor = isOvercharged ? 0xfacc15 : 0xf59e0b;
         const g = new PIXI.Graphics();
 
-        // Mech shadow & hydraulic legs
         g.beginFill(0x000000, 0.45);
         g.drawEllipse(0, 22, 16, 5);
         g.endFill();
@@ -469,7 +598,6 @@
         g.moveTo(-7, 6); g.lineTo(-9, 20);
         g.moveTo(7, 6);  g.lineTo(9, 20);
 
-        // Armored torso + shoulder pauldrons
         g.beginFill(0x1e293b, 0.98);
         g.lineStyle(2.2, armorColor, 1);
         g.drawRoundedRect(-14, -14, 28, 22, 5);
@@ -480,13 +608,11 @@
         g.drawRoundedRect(10, -16, 8, 10, 3);
         g.endFill();
 
-        // Glowing visor eye
         g.beginFill(0x38bdf8, 1);
         g.drawRect(-6, -9, 14, 4);
         g.endFill();
         rig.addChild(g);
 
-        // Mini HP bar below Mech
         if (typeof item.hp === 'number') {
           const maxHp = item.maxHp || Math.max(item.hp, 24);
           const ratio = Math.max(0, Math.min(1, item.hp / maxHp));
@@ -501,34 +627,29 @@
 
         mechIdx++;
       } else if (kind === 'building') {
-        // --- BUILDING: Anchored Hexagonal Energy Pylon behind/beside Hero ---
         rig.x = Math.max(28, Math.round(heroX - 48 - buildingIdx * 34));
         rig.y = Math.min(h - 24, Math.round(heroY + 4 - buildingIdx * 24));
         rig.__baseY = rig.y;
-        rig.__bobAmp = 0; // Buildings stay firmly anchored
+        rig.__bobAmp = 0;
 
         const bColor = isOvercharged ? 0x34d399 : 0x10b981;
         const g = new PIXI.Graphics();
 
-        // Base foundation
         g.beginFill(0x064e3b, 0.95);
         g.lineStyle(2, bColor, 1);
         g.drawPolygon([-14, 18, -10, -14, 10, -14, 14, 18]);
         g.endFill();
 
-        // Pulsing energy crystal spire
         g.beginFill(0xa7f3d0, 1);
         g.drawPolygon([0, -24, 6, -14, 0, -6, -6, -14]);
         g.endFill();
 
-        // Aura ring
         g.lineStyle(1.5, bColor, 0.45);
         g.drawEllipse(0, 18, 20, 6);
         rig.addChild(g);
 
         buildingIdx++;
       } else {
-        // --- TURRET: Floating Hover-Pod in an arc above the Artificer ---
         rig.x = Math.min(w * 0.46, Math.round(heroX + 46 + (turretIdx % 3) * 40));
         rig.y = Math.max(36, Math.round(heroY - 54 - Math.floor(turretIdx / 3) * 34));
         rig.__baseY = rig.y;
@@ -537,12 +658,10 @@
         const tColor = isOvercharged ? 0xfacc15 : 0x38bdf8;
         const g = new PIXI.Graphics();
 
-        // Hover thruster glow
         g.beginFill(tColor, 0.35);
         g.drawEllipse(0, 11, 10, 3.5);
         g.endFill();
 
-        // Sleek turret pod & dual barrels
         g.beginFill(0x0f172a, 0.96);
         g.lineStyle(2, tColor, 1);
         g.drawRoundedRect(-12, -8, 24, 14, 6);
@@ -561,7 +680,6 @@
         turretIdx++;
       }
 
-      // Label tag above each construct
       const labelColor = kind === 'mech' ? '#fcd34d' : (kind === 'building' ? '#6ee7b7' : '#7dd3fc');
       const shortName = item && item.name ? String(item.name).split(' ')[0] : kind.toUpperCase();
       const tag = new PIXI.Text(shortName, {
@@ -618,6 +736,9 @@
               <button class="af-close-btn" id="af-close-modal">✕ Close</button>
             </div>
           </div>
+          <div class="af-panel-subtitle">
+            Obtain a construct's <strong>Card Form</strong> (via Starter Deck, Card Rewards, or Shop) to permanently unlock its Foundry Schematic for this run.
+          </div>
           <div class="af-filter-tabs" id="af-filter-tabs">
             <button class="af-tab active" data-filter="all">All Blueprints (6)</button>
             <button class="af-tab" data-filter="turret">🔫 Turrets</button>
@@ -644,7 +765,6 @@
       });
     }
 
-    // Make top HUD Parts badge clickable to open Schematics anytime
     const partsBadge = document.getElementById('ui-parts-badge');
     if (partsBadge && !partsBadge.__afBound) {
       partsBadge.__afBound = true;
@@ -666,16 +786,15 @@
   }
 
   function tryFabricateSchematic(bp) {
+    if (!bp || !bp.unlocked) return;
     const parts = getPartsInfo();
     if (parts.current < bp.cost) return;
 
-    // Hook into native game craft/deploy function if present
     if (typeof window.fabricateConstruct === 'function') {
       window.fabricateConstruct(bp.id);
     } else if (typeof window.deploySchematic === 'function') {
       window.deploySchematic(bp.id);
     } else if (typeof gameState !== 'undefined' && gameState) {
-      // Safe fallback deployment into gameState.turrets
       if (typeof gameState.parts === 'number') gameState.parts -= bp.cost;
       else if (typeof gameState.scrapParts === 'number') gameState.scrapParts -= bp.cost;
 
@@ -714,10 +833,14 @@
     grid.innerHTML = roster.map(bp => {
       const canCraft = inBattle && bp.unlocked && parts.current >= bp.cost;
       const btnLabel = !bp.unlocked
-        ? '🔒 Locked'
+        ? '🔒 Need Card Form'
         : (!inBattle
             ? 'In Battle Only'
             : (parts.current < bp.cost ? `Need ${bp.cost} ⚙️` : `🔨 Build (${bp.cost} ⚙️)`));
+
+      const reqHtml = bp.unlocked
+        ? `<div class="af-card-req req-unlocked">✅ Card Form Acquired${bp.ownedCardName ? `: <strong>${bp.ownedCardName}</strong>` : ''}</div>`
+        : `<div class="af-card-req req-locked">🔒 Locked — Obtain <strong>${bp.cardForm}</strong></div>`;
 
       return `
         <div class="af-bp-card archetype-${bp.archetype} ${bp.unlocked ? '' : 'locked'}">
@@ -728,11 +851,12 @@
             </div>
             <div class="af-bp-name">${bp.name}</div>
           </div>
+          ${reqHtml}
           <div class="af-bp-desc">${bp.desc}</div>
           <div class="af-bp-overcharge">⚡ ${bp.overcharge}</div>
           <div class="af-bp-footer">
             <span class="af-bp-status ${bp.deployedCount > 0 ? 'deployed' : ''}">
-              ${bp.deployedCount > 0 ? `● ${bp.deployedCount} Active on Field` : '○ Standby'}
+              ${!bp.unlocked ? '🔒 Blueprint Locked' : (bp.deployedCount > 0 ? `● ${bp.deployedCount} Active on Field` : '○ Ready to Fabricate')}
             </span>
             <button class="af-bp-craft-btn" data-bp-id="${bp.id}" ${canCraft ? '' : 'disabled'}>
               ${btnLabel}
@@ -817,28 +941,39 @@
   window.openArtificerSchematics = openSchematicsModal;
   window.updateArtificerFoundryHUD = updateArtificerFoundryHUD;
 
-  // Hook into updateBattleUI & poll lightly during active Artificer battles
+  // Hook into battle UI, board UI & card acquisition so unlocks update anywhere in a run
   function installFoundryHooks() {
     ensureFoundryDOM();
-    if (typeof window.updateBattleUI === 'function' && !window.updateBattleUI.__afWrapped) {
-      const orig = window.updateBattleUI;
-      const wrapped = function (...args) {
-        const res = orig.apply(this, args);
-        updateArtificerFoundryHUD();
-        window.renderArtificerTurrets();
-        return res;
-      };
-      wrapped.__afWrapped = true;
-      window.updateBattleUI = wrapped;
-    }
+
+    ['updateBattleUI', 'updateBoardUI', 'renderShopItems', 'selectHeroClass'].forEach(fnName => {
+      if (typeof window[fnName] === 'function' && !window[fnName].__afWrapped) {
+        const orig = window[fnName];
+        const wrapped = function (...args) {
+          const res = orig.apply(this, args);
+          syncSchematicUnlocksFromCards(fnName !== 'selectHeroClass');
+          updateArtificerFoundryHUD();
+          if (fnName === 'updateBattleUI') window.renderArtificerTurrets();
+          return res;
+        };
+        wrapped.__afWrapped = true;
+        window[fnName] = wrapped;
+      }
+    });
+
+    syncSchematicUnlocksFromCards(false);
     updateArtificerFoundryHUD();
   }
 
+  // Poll deck/piles lightly so drafting a card reward or buying from shop unlocks immediately
   setInterval(() => {
-    if (typeof gameState !== 'undefined' && gameState && gameState.screen === 'BATTLE') {
-      updateArtificerFoundryHUD();
+    if (typeof gameState === 'undefined' || !gameState) return;
+    if (gameState.classType === 'Artificer' || getActiveConstructs().length > 0) {
+      syncSchematicUnlocksFromCards(true);
+      if (gameState.screen === 'BATTLE') {
+        updateArtificerFoundryHUD();
+      }
     }
-  }, 300);
+  }, 400);
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', installFoundryHooks);
