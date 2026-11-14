@@ -43,23 +43,23 @@ function drawTypeFromPile(cat, count) {
 
  for (let i = 0; i < count; i++) {
  let pile = cat === 'action' ? gameState.drawPileAction : gameState.drawPileTome;
- if (pile.length === 0) {
+ pile.length === 0) {
  reshuffleCategoryDiscard(cat);
  pile = cat === 'action' ? gameState.drawPileAction : gameState.drawPileTome;
  }
- if (pile.length > 0) {
+ pile.length > 0) {
  const cId = pile.pop();
  const cardObj = { instanceId: Math.random().toString(36).substring(7), id: cId, isNew: true, turnsInVault: 0, wasUnvaultedThisTurn: false };
  
- if (cId === 'vial_stash' && gameState.vault.length < maxVaultSlots) {
+ cId === 'vial_stash' && gameState.vault.length < maxVaultSlots) {
  gameState.vault.push(cardObj);
- if (playerSprite) {
+ playerSprite) {
  spawnPoisonBubbles(playerSprite.x, playerSprite.y - 10, 8);
  spawnFloatingText(playerSprite.x, playerSprite.y - 25, 'VIAL STASH AUTO-VAULTED!', '#4ade80');
  }
- } else if (cId === 'assembly_blueprint' && gameState.vault.length === 0) {
+ } else cId === 'assembly_blueprint' && gameState.vault.length === 0) {
  gameState.vault.push(cardObj);
- if (playerSprite) {
+ playerSprite) {
  spawnParticles(playerSprite.x, playerSprite.y - 10, 10, { colors: [0xf59e0b, 0x38bdf8], speed: 2.5, shape: 'shard', life: 20 });
  spawnFloatingText(playerSprite.x, playerSprite.y - 25, '⚙️ BLUEPRINT AUTO-VAULTED!', '#f59e0b');
  }
@@ -72,10 +72,10 @@ function drawTypeFromPile(cat, count) {
 
 function reshuffleCategoryDiscard(cat) {
  const matching = gameState.discardPile.filter(cId => CARD_DATABASE[cId] && CARD_DATABASE[cId].category === cat);
- if (matching.length > 0) {
+ matching.length > 0) {
  gameState.discardPile = gameState.discardPile.filter(cId => CARD_DATABASE[cId] && CARD_DATABASE[cId].category !== cat);
  const shuffled = matching.sort(() => Math.random() - 0.5);
- if (cat === 'action') gameState.drawPileAction.push(...shuffled);
+ cat === 'action') gameState.drawPileAction.push(...shuffled);
  else gameState.drawPileTome.push(...shuffled);
  }
 }
@@ -113,16 +113,16 @@ function startBattleAtNode() {
  gameState.reflectDamageThisTurn = 0;
  gameState.intimidateMultiplier = 1.0;
 
- if (gameState.classType === 'Chronomancer') {
+ gameState.classType === 'Chronomancer') {
  const hasChronoT1 = getClassUnlockedArray('Chronomancer')[0];
  gameState.chronos = hasChronoT1 ? 1 : 0;
  gameState.chronosDodgeCounter = 0;
  }
- if (gameState.classType === 'Artificer') {
+ gameState.classType === 'Artificer') {
  const hasArtT2 = getClassUnlockedArray('Artificer')[1];
  gameState.turrets = hasArtT2 ? [{ id: 1, hp: 10, maxHp: 10 }] : [];
  }
- if (gameState.classType === 'Mob Boss') {
+ gameState.classType === 'Mob Boss') {
  const hasMobT1 = getClassUnlockedArray('Mob Boss')[0];
  const hasMobT2 = getClassUnlockedArray('Mob Boss')[1];
  gameState.cash = Math.max(gameState.cash || 0, hasMobT1 ? 45 : 25);
@@ -1151,15 +1151,20 @@ async function resolveSingleCardAction(cardObj, slotIndex, isEchoCast = false) {
  spawnFloatingText(tgtPos.x, tgtPos.y - 45, `IGNITION +${igTier * 5}!`, '#f97316');
  }
 
- if (finalDmg > 0) {
- targetEnemy.hp = Math.max(0, targetEnemy.hp - finalDmg);
- if (isCrit) {
- spawnBlackFlashVFX(tgtPos.x, tgtPos.y, Math.max(1, bfTier));
- spawnBlackFlashBanner(tgtPos.x, tgtPos.y - 54);
- spawnFloatingText(tgtPos.x, tgtPos.y - 16, `${isGuaranteedCrit ? 'SHADOW ' : ''}CRIT -${finalDmg}!`, '#ff2a55');
- } else {
- spawnFloatingText(tgtPos.x, tgtPos.y - 16, `${isEchoCast ? 'ECHO ' : ''}-${finalDmg}`, '#f87171');
- }
+if (finalDmg > 0) {
+    targetEnemy.hp = Math.max(0, targetEnemy.hp - finalDmg);
+    if (isCrit) {
+      if (bfTier > 0) {
+        spawnBlackFlashVFX(tgtPos.x, tgtPos.y, bfTier);
+        spawnBlackFlashBanner(tgtPos.x, tgtPos.y - 54);
+        spawnFloatingText(tgtPos.x, tgtPos.y - 16, `${isGuaranteedCrit ? 'SHADOW ' : ''}CRIT -${finalDmg}!`, '#ff2a55');
+      } else {
+        spawnParticles(tgtPos.x, tgtPos.y, 14, { colors: [0xfacc15, 0xfef08a], speed: 4.5, life: 22 });
+        spawnFloatingText(tgtPos.x, tgtPos.y - 16, `${isGuaranteedCrit ? 'SHADOW ' : ''}CRIT -${finalDmg}!`, '#facc15');
+      }
+    } else {
+      spawnFloatingText(tgtPos.x, tgtPos.y - 16, `${isEchoCast ? 'ECHO ' : ''}-${finalDmg}`, '#f87171');
+    }
 
  // Mob Boss T1 Passive: Syndicate Shakedown (+$8 Cash & +1 ★ on Crit or Kill)
  if (gameState.classType === 'Mob Boss' && getClassUnlockedArray('Mob Boss')[0] && (isCrit || targetEnemy.hp === 0)) {
