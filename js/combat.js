@@ -1,1787 +1,1801 @@
-function initPilesForBattle() {
- gameState.drawPileAction = [];
- gameState.drawPileTome = [];
- gameState.discardPile = [];
- gameState.hand = [];
- gameState.vault = [];
+// --- COMBAT ENGINE: SEQUENCES, 6-CONSTRUCT FOUNDRY, T1-T4 MASTERIES & CARD-PLAYING ENEMY AI (v0.8.0) ---
 
- const shuffled = [...gameState.deck].sort(() => Math.random() - 0.5);
- shuffled.forEach(cId => {
-  const cDef = CARD_DATABASE[cId];
-  if (cDef) {
-   if (cDef.category === 'action') gameState.drawPileAction.push(cId);
-   else gameState.drawPileTome.push(cId);
+function getEffectiveCardCost(cardDef, slotIdx = -1) {
+  if (!cardDef) return 0;
+  let cost = cardDef.cost;
+  if (cardDef.id === 'battering_rampart' && slotIdx === 0) cost = 1;
+  if (cardDef.id === 'crimson_frenzy' && gameState.player.hp < gameState.player.maxHp * 0.5) cost = 0;
+
+  // Mage T4 Mastery: Astral Omniscience (Every 3rd Tome played costs 0 Mana)
+  if (
+    gameState.classType === 'Mage' &&
+    getClassUnlockedArray('Mage')[3] &&
+    cardDef.category === 'tome' &&
+    (cardDef.costType || 'energy') === 'mana' &&
+    ((gameState.tomesPlayedThisBattle + 1) % 3 === 0)
+  ) {
+    return 0;
   }
- });
+
+  if ((cardDef.costType || 'energy') === 'energy' && gameState.prismaticActive && cardDef.type === 'ATTACK') {
+    cost = Math.max(0, cost - 1);
+  }
+  return cost;
 }
 
-function drawCardsForTurn(isFirstTurn = false) {
- if (isFirstTurn) {
-  drawTypeFromPile('action', 4);
-  drawTypeFromPile('tome', 1);
- } else {
-  for (let i = 0; i < 4; i++) {
-   const hasAction = gameState.drawPileAction.length > 0 || gameState.discardPile.some(cId => CARD_DATABASE[cId] && CARD_DATABASE[cId].category === 'action');
-   const hasTome = gameState.drawPileTome.length > 0 || gameState.discardPile.some(cId => CARD_DATABASE[cId] && CARD_DATABASE[cId].category === 'tome');
-
-   let targetCat = 'action';
-   if (hasAction && hasTome) {
-    targetCat = Math.random() < 0.8 ? 'action' : 'tome';
-   } else if (hasTome) {
-    targetCat = 'tome';
-   } else {
-    targetCat = 'action';
-   }
-   drawTypeFromPile(targetCat, 1);
-  }
- }
+function getEffectiveScrapLimit() {
+  return (gameState.scrapLimit || 1) + (gameState.bonusScrapLimitThisTurn || 0);
 }
 
-function drawTypeFromPile(cat, count) {
- const maxVaultSlots = getMaxVaultSlots(gameState.classType);
+function initBattle(enemiesList) {
+  gameState.enemies = enemiesList.map((e, i) => ({
+    ...e,
+    id: 'enemy_' + i,
+    hp: e.maxHp,
+    shield: e.shield || 0,
+    poison: 0,
+    burn: 0,
+    hemorrhage: 0,
+    turnIndex: 0
+  }));
 
- for (let i = 0; i < count; i++) {
-  let pile = cat === 'action' ? gameState.drawPileAction : gameState.drawPileTome;
-  if (pile.length === 0) {
-   reshuffleCategoryDiscard(cat);
-   pile = cat === 'action' ? gameState.drawPileAction : gameState.drawPileTome;
-  }
-  if (pile.length > 0) {
-   const cId = pile.pop();
-   const cardObj = { instanceId: Math.random().toString(36).substring(7), id: cId, isNew: true, turnsInVault: 0, wasUnvaultedThisTurn: false };
-
-   if (cId === 'vial_stash' && gameState.vault.length < maxVaultSlots) {
-    gameState.vault.push(cardObj);
-    if (playerSprite) {
-     spawnPoisonBubbles(playerSprite.x, playerSprite.y - 10, 8);
-     spawnFloatingText(playerSprite.x, playerSprite.y - 25, 'VIAL STASH AUTO-VAULTED!', '#4ade80');
-    }
-   } else if (cId === 'assembly_blueprint' && gameState.vault.length === 0) {
-    gameState.vault.push(cardObj);
-    if (playerSprite) {
-     spawnParticles(playerSprite.x, playerSprite.y - 10, 10, { colors: [0xf59e0b, 0x38bdf8], speed: 2.5, shape: 'shard', life: 20 });
-     spawnFloatingText(playerSprite.x, playerSprite.y - 25, '⚙️ BLUEPRINT AUTO-VAULTED!', '#f59e0b');
-    }
-   } else {
-    gameState.hand.push(cardObj);
-   }
-  }
- }
-}
-
-function reshuffleCategoryDiscard(cat) {
- const matching = gameState.discardPile.filter(cId => CARD_DATABASE[cId] && CARD_DATABASE[cId].category === cat);
- if (matching.length > 0) {
-  gameState.discardPile = gameState.discardPile.filter(cId => CARD_DATABASE[cId] && CARD_DATABASE[cId].category !== cat);
-  const shuffled = matching.sort(() => Math.random() - 0.5);
-  if (cat === 'action') gameState.drawPileAction.push(...shuffled);
-  else gameState.drawPileTome.push(...shuffled);
- }
-}
-
-function startBattleAtNode() {
- gameState.restBonusActiveThisTurn = gameState.restBonusActiveNextTurn;
- gameState.restBonusActiveNextTurn = false;
-
- const hourglassBonus = (gameState.passives.CHRONO_HOURGLASS || 0) > 0 ? 1 : 0;
- const mageT4Bonus = (gameState.classType === 'Mage' && getClassUnlockedArray('Mage')[3]) ? 1 : 0;
- const initialSlots = Math.min(5, (gameState.restBonusActiveThisTurn ? 4 : 3) + hourglassBonus + mageT4Bonus);
- gameState.sequence = Array(initialSlots).fill(null);
-
- gameState.currentEnergy = gameState.maxEnergy + (gameState.nextTurnBonusEnergy || 0);
- gameState.nextTurnBonusEnergy = 0;
- gameState.abilityUsedThisTurn = false;
- gameState.nextHitBonusDmg = 0;
- gameState.nextHitMultiplier = 1.0;
- gameState.nextHitCritBonus = 0;
- gameState.guaranteedCritNextAttack = false;
- gameState.guaranteedDodgeCount = 0;
- gameState.nextHitLifestealBonus = 0;
- gameState.nextHitBonusHemorrhage = 0;
- gameState.scrapsUsedThisTurn = 0;
- gameState.juggernautStanceActive = false;
- gameState.manaSpentThisTurn = 0;
- gameState.attackDiscountThisTurn = 0;
- gameState.nextScrapBonusEnergy = 0;
- gameState.nextTomeEchoThisTurn = false;
- gameState.chronoEchoPlayedThisTurn = false;
- gameState.spentHpThisTurn = false;
- gameState.totalScrapsInBattle = 0;
- gameState.turretBonusVolleysThisTurn = 0;
- gameState.reactiveArmorActive = false;
- gameState.lastInstantSlot1CardId = null;
- gameState.lastSlot1CardId = null;
- gameState.reflectDamageThisTurn = 0;
- gameState.intimidateMultiplier = 1.0;
-
- if (gameState.classType === 'Mage' && getClassUnlockedArray('Mage')[3]) {
-  gainMana(2);
- }
- if (gameState.classType === 'Chronomancer') {
-  const hasChronoT1 = getClassUnlockedArray('Chronomancer')[0];
-  gameState.chronos = hasChronoT1 ? 1 : 0;
-  gameState.chronosDodgeCounter = 0;
- }
- if (gameState.classType === 'Artificer') {
-  const hasArtT2 = getClassUnlockedArray('Artificer')[1];
-  gameState.turrets = hasArtT2
-   ? [{ id: 1, type: 'auto_turret', name: 'Auto-Turret Drone', hp: 10, maxHp: 10 }]
-   : [];
- }
- if (gameState.classType === 'Mob Boss') {
-  const hasMobT1 = getClassUnlockedArray('Mob Boss')[0];
-  const hasMobT2 = getClassUnlockedArray('Mob Boss')[1];
-  gameState.cash = Math.max(gameState.cash || 0, hasMobT1 ? 45 : 25);
-  gameState.notoriety = Math.max(gameState.notoriety || 0, 5);
-  gameState.enforcers = hasMobT2 ? [{ id: 1, hp: 12, maxHp: 12 }] : [];
- }
-
- const defTier = gameState.passives.DEFLECTION || 0;
- if (defTier > 0) {
-  addPlayerShield(defTier * 3);
- }
-
- if (gameState.boardNode === 5) {
-  gameState.enemies = [{
-   id: 1, name: 'VOID OVERLORD', hp: 90, maxHp: 90, atk: 14, poison: 0, hemorrhage: 0, burn: 0, hasBountyLock: false,
-   sequence: [
-    { name: 'Doom Strike', type: 'ATTACK', value: 16, speed: 1.2 },
-    { name: 'Dark Shield', type: 'DEFEND', value: 12, speed: 1.0 }
-   ]
-  }];
- } else if (gameState.pendingNodeType === 'DUO COMBAT') {
-  gameState.enemies = [
-   { id: 1, name: 'SHADOW GUARD A', hp: 35, maxHp: 35, atk: 8, poison: 0, hemorrhage: 0, burn: 0, hasBountyLock: false, sequence: [{ name: 'Stab', type: 'ATTACK', value: 8, speed: 1.0 }, { name: 'Evade', type: 'DEFEND', value: 6, speed: 1.0 }] },
-   { id: 2, name: 'SHADOW GUARD B', hp: 35, maxHp: 35, atk: 8, poison: 0, hemorrhage: 0, burn: 0, hasBountyLock: false, sequence: [{ name: 'Soul Heal', type: 'HEAL', value: 10, speed: 1.5 }, { name: 'Shadow Strike', type: 'ATTACK', value: 10, speed: 1.2 }] }
-  ];
- } else {
-  gameState.enemies = [{
-   id: 1, name: 'SHADOW GUARD', hp: 45, maxHp: 45, atk: 10, poison: 0, hemorrhage: 0, burn: 0, hasBountyLock: false,
-   sequence: [
-    { name: 'Shadow Slash', type: 'ATTACK', value: 10, speed: 1.0 },
-    { name: 'Iron Guard', type: 'DEFEND', value: 8, speed: 1.0 }
-   ]
-  }];
- }
-
- const wrapper = document.getElementById('canvas-wrapper');
- if (wrapper) {
-  const themeIdx = (gameState.boardNode - 1) % STAGE_THEMES.length;
-  wrapper.style.background = STAGE_THEMES[themeIdx].bg;
- }
-
- syncBlackMarketUnlockedSlots();
- initPilesForBattle();
- setupPixiApp();
- drawCardsForTurn(true);
- updateAbilityBarLabel();
- renderUI();
- window.showScreen('screen-battle');
-}
-
-function updateAbilityBarLabel() {
- const btn = document.getElementById('ui-ability-btn');
- const uiClass = document.getElementById('ui-class');
- const theme = CLASS_THEMES[gameState.classType] || CLASS_THEMES.Rogue;
-
- if (uiClass) {
-  uiClass.innerText = gameState.classType.toUpperCase();
-  uiClass.style.color = theme.cssColor;
- }
-
- if (!btn) return;
- if (gameState.classType === 'Mage') {
-  btn.innerText = '🔮 MANA CONVERT (Spend 2 Mana → Gain +1 Energy & +1 Temp Slot) [2 Mana]';
-  btn.style.borderColor = 'var(--accent-purple)';
-  btn.style.color = 'var(--accent-purple)';
- } else if (gameState.classType === 'Warrior') {
-  btn.innerText = '🛡️ SHIELD WALL (+20 Shield) [1 Energy]';
-  btn.style.borderColor = 'var(--accent-red)';
-  btn.style.color = 'var(--accent-red)';
- } else if (gameState.classType === 'Chronomancer') {
-  btn.innerText = '⏳ TEMPORAL LOOP (Duplicate Slot 1 Card into 0⚡ Temp Echo Slot) [2 Chronos]';
-  btn.style.borderColor = 'var(--accent-teal)';
-  btn.style.color = 'var(--accent-teal)';
- } else if (gameState.classType === 'Artificer') {
-  const modeText = (gameState.turrets && gameState.turrets.length >= 3)
-   ? 'OVERCLOCK CONSTRUCTS (All 3 Constructs Fire/Act Immediately for 2x!)'
-   : 'DEPLOY AUTO-TURRET (Summon 10-HP Drone: 6 DMG + 2 Burn/Turn)';
-  btn.innerText = `⚙️ ${modeText} [1 Energy + 2 Parts]`;
-  btn.style.borderColor = 'var(--accent-gold)';
-  btn.style.color = 'var(--accent-gold)';
- } else if (gameState.classType === 'Blood Reaver') {
-  btn.innerText = '🩸 CRIMSON PACT (+1 Energy, +50% Lifesteal & +4 Hemorrhage on Next Hit) [8 HP]';
-  btn.style.borderColor = 'var(--accent-crimson)';
-  btn.style.color = 'var(--accent-crimson)';
- } else if (gameState.classType === 'Mob Boss') {
-  btn.innerText = '🎯 PUT OUT A HIT (Lock Bounty, 12 DMG, +50% Next Hit & +$25 Cash on Kill!) [$20 Cash • 0⚡]';
-  btn.style.borderColor = 'var(--accent-mob)';
-  btn.style.color = '#fef08a';
- } else {
-  btn.innerText = '🗡️ PRECISE POISON (+8 DMG Next Hit) [1 Energy]';
-  btn.style.borderColor = 'var(--accent-green)';
-  btn.style.color = 'var(--accent-green)';
- }
-}
-
-window.useClassAbility = async function() {
- if (gameState.isExecuting) return;
-
- const px = playerSprite ? playerSprite.x : 200;
- const py = playerSprite ? playerSprite.y : 138;
-
- if (gameState.classType === 'Artificer') {
-  if (gameState.currentEnergy < 1 || gameState.parts < 2) {
-   showToast('Requires 1 Energy and 2 Scrap Parts!', 'var(--accent-gold)');
-   return;
-  }
-  gameState.currentEnergy -= 1;
-  gameState.parts -= 2;
-
-  if (gameState.turrets.length < 3) {
-   deployOrRefundArtificerTurret(px, py, 'auto_turret');
-  } else {
-   spawnShockwave(px, py, 95, 0xf59e0b, 6, 26);
-   spawnFloatingText(px, py - 28, 'CONSTRUCT OVERCLOCK (2X VOLLEY)!', '#f59e0b');
-   await fireAllArtificerTurrets(2.0);
-  }
-  updateAbilityBarLabel();
-  renderUI();
-  return;
- }
-
- if (gameState.abilityUsedThisTurn) {
-  showToast('Ability already used this turn!', 'var(--accent-gold)');
-  return;
- }
-
- if (gameState.classType === 'Mob Boss') {
-  if ((gameState.cash || 0) < 20) {
-   showToast('Not enough Cash! Requires $20 Cash.', 'var(--accent-mob)');
-   return;
-  }
-  const activeEnemies = gameState.enemies.filter(e => e.hp > 0);
-  if (activeEnemies.length === 0) return;
-  const targetEnemy = activeEnemies[0];
-  const targetIdx = gameState.enemies.indexOf(targetEnemy);
-  const targetSprite = enemySprites[targetIdx];
-  const tx = targetSprite ? targetSprite.x : 750;
-  const ty = targetSprite ? targetSprite.y : 138;
-
-  spendCash(20, px, py);
-  gameState.abilityUsedThisTurn = true;
-  gameState.nextHitMultiplier = Math.max(gameState.nextHitMultiplier || 1.0, 1.5);
-  targetEnemy.hasBountyLock = true;
-
-  spawnBountyCrosshairVFX(tx, ty);
-  spawnGunfireVolleyVFX(px, py, tx, ty, 3);
-  spawnFloatingText(px, py - 26, '🎯 PUT OUT A HIT (-$20 CASH)', '#eab308');
-
-  await new Promise(r => setTimeout(r, 220 * gameState.speedMultiplier));
-
-  targetEnemy.hp = Math.max(0, targetEnemy.hp - 12);
-  spawnShockwave(tx, ty, 74, 0xdc2626, 5, 22);
-  spawnFloatingText(tx, ty - 28, '🎯 BOUNTY SHOT -12 HP (+50% NEXT HIT!)', '#fb7185');
-  if (targetEnemy.hp === 0 && targetEnemy.hasBountyLock) {
-   targetEnemy.hasBountyLock = false;
-   gainCash(25, tx, ty, '💰 HIT CONTRACT PAID +$25 CASH!', true);
-   gainNotoriety(5, tx, ty);
-  }
-  renderUI();
-  checkPostActionVictoryOrDefeat();
-  return;
- }
-
- if (gameState.classType === 'Mage') {
-  if (gameState.player.mana < 2) {
-   showToast('Not enough Mana! Requires 2 Mana.', 'var(--accent-purple)');
-   return;
-  }
-  gameState.player.mana -= 2;
-  gameState.manaSpentThisTurn += 2;
-  gameState.currentEnergy += 1;
-  if (gameState.sequence.length < 4) {
-   gameState.sequence.push(null);
-  }
-  gameState.abilityUsedThisTurn = true;
-  spawnShockwave(px, py, 75, 0xc084fc, 4, 24);
-  spawnParticles(px, py, 16, { colors: [0xc084fc, 0x38bdf8, 0xf59e0b], speed: 3.5, life: 28 });
-  spawnFloatingText(px, py - 24, '-2 MANA → +1 ENERGY & SLOT!', '#c084fc');
- } else if (gameState.classType === 'Warrior') {
-  if (gameState.currentEnergy < 1) {
-   showToast('Not enough Energy!', 'var(--accent-red)');
-   return;
-  }
-  gameState.currentEnergy -= 1;
-  addPlayerShield(20, px, py);
-  gameState.abilityUsedThisTurn = true;
-  playCardVFX('iron_defense', { x: px, y: py }, { x: px, y: py });
-  spawnFloatingText(px, py - 24, '+20 SHIELD WALL', '#38bdf8');
- } else if (gameState.classType === 'Chronomancer') {
-  if (gameState.chronos < 2) {
-   showToast('Requires 2 Chronos!', 'var(--accent-teal)');
-   return;
-  }
-  const sourceCardObj = gameState.sequence[0] || (gameState.lastInstantSlot1CardId ? { id: gameState.lastInstantSlot1CardId } : null);
-  if (!sourceCardObj) {
-   showToast('Place a card in Slot 1 first to duplicate with Temporal Loop!', 'var(--accent-teal)');
-   return;
-  }
-  gameState.chronos -= 2;
-  const cloneObj = {
-   instanceId: Math.random().toString(36).substring(7),
-   id: sourceCardObj.id,
-   isNew: false,
-   turnsInVault: 0,
-   wasUnvaultedThisTurn: false,
-   paidCost: 0
-  };
-  if (gameState.sequence.length < 5) {
-   gameState.sequence.push(cloneObj);
-  } else {
-   const emptySlot = gameState.sequence.findIndex(s => s === null);
-   if (emptySlot !== -1) gameState.sequence[emptySlot] = cloneObj;
-  }
-  gameState.abilityUsedThisTurn = true;
-  spawnShockwave(px, py, 82, 0x2dd4bf, 5, 26);
-  spawnParticles(px, py, 18, { colors: [0x2dd4bf, 0xf59e0b, 0x38bdf8], speed: 3.6, life: 26 });
-  spawnFloatingText(px, py - 26, `TEMPORAL LOOP: [${CARD_DATABASE[sourceCardObj.id].name}] CLONED!`, '#2dd4bf');
- } else if (gameState.classType === 'Blood Reaver') {
-  if (!spendPlayerHp(8, px, py)) {
-   showToast('Not enough HP for Crimson Pact (Requires > 8 HP)!', 'var(--accent-crimson)');
-   return;
-  }
-  gameState.currentEnergy += 1;
-  gameState.nextHitLifestealBonus += 0.50;
-  gameState.nextHitBonusHemorrhage += 4;
-  gameState.abilityUsedThisTurn = true;
-  spawnShockwave(px, py, 78, 0xdc2626, 5, 24);
-  spawnFloatingText(px, py - 26, 'CRIMSON PACT (+1⚡, +50% LIFESTEAL, +4 BLEED)', '#fb7185');
- } else {
-  if (gameState.currentEnergy < 1) {
-   showToast('Not enough Energy!', 'var(--accent-green)');
-   return;
-  }
-  gameState.currentEnergy -= 1;
-  gameState.nextHitBonusDmg += 8;
-  gameState.abilityUsedThisTurn = true;
-  spawnPoisonBubbles(px, py - 10, 12);
-  spawnSlashArc(px + 15, py, -0.4, 48, 0x4ade80, 0x86efac);
-  spawnFloatingText(px, py - 24, 'POISON COATED (+8 DMG)', '#4ade80');
- }
-
- renderUI();
-};
-
-
-// --- CARD PLAY, SLOT 1 INSTANT CAST, STASIS VAULT & SCRAP LOGIC ---
-window.playCardToSequence = async function(handIdx) {
- if (gameState.isExecuting) return;
- const cardObj = gameState.hand[handIdx];
- if (!cardObj) return;
- const cardDef = CARD_DATABASE[cardObj.id];
- if (!cardDef) return;
-
- const slotIdx = gameState.sequence.findIndex(s => s === null);
- if (slotIdx === -1) {
-  showToast('All sequence slots are full! Execute or Rest.', 'var(--accent-gold)');
-  return;
- }
-
- const isBloodCost = cardDef.costType === 'hp';
- const isManaCost = cardDef.costType === 'mana';
- const isChronosCost = cardDef.costType === 'chronos';
- const isCashCost = cardDef.costType === 'cash';
- let actualCost = cardDef.cost;
-
- if (isBloodCost) {
-  actualCost = cardDef.hpCost || cardDef.cost || 6;
-  if (gameState.player.hp <= actualCost) {
-   showToast(`Requires > ${actualCost} HP to pay Blood Tithe!`, 'var(--accent-crimson)');
-   return;
-  }
- } else if (isCashCost) {
-  if ((gameState.cash || 0) < actualCost) {
-   showToast(`Not enough Cash! Requires $${actualCost} Cash.`, 'var(--accent-mob)');
-   return;
-  }
- } else if (isChronosCost) {
-  if (gameState.chronos < actualCost) {
-   showToast(`Not enough Chronos! Requires ${actualCost} Chronos.`, 'var(--accent-teal)');
-   return;
-  }
- } else if (isManaCost) {
-  if (gameState.player.mana < actualCost) {
-   showToast(`Not enough Mana! Requires ${actualCost} Mana.`, 'var(--accent-purple)');
-   return;
-  }
- } else {
-  if (cardDef.id === 'battering_rampart' && slotIdx === 0) actualCost = 1;
-  if (cardDef.id === 'crimson_frenzy' && gameState.player.hp < gameState.player.maxHp * 0.5) actualCost = 0;
-  if (cardDef.type === 'ATTACK' && gameState.attackDiscountThisTurn > 0) {
-   actualCost = Math.max(0, actualCost - gameState.attackDiscountThisTurn);
-  }
-  if (gameState.currentEnergy < actualCost) {
-   showToast('Not enough Energy for this card!', 'var(--accent-red)');
-   return;
-  }
- }
-
- const px = playerSprite ? playerSprite.x : 200;
- const py = playerSprite ? playerSprite.y : 138;
-
- if (isBloodCost) {
-  spendPlayerHp(actualCost, px, py);
- } else if (isCashCost) {
-  spendCash(actualCost, px, py);
- } else if (isChronosCost) {
-  gameState.chronos -= actualCost;
- } else if (isManaCost) {
-  gameState.player.mana -= actualCost;
-  gameState.manaSpentThisTurn += actualCost;
- } else {
-  gameState.currentEnergy -= actualCost;
- }
-
- cardObj.paidCost = actualCost;
- gameState.hand.splice(handIdx, 1);
-
- // Chronomancer T2 Mastery: Accelerated Timeline (Slot 1 casts immediately upon placement!)
- if (gameState.classType === 'Chronomancer' && getClassUnlockedArray('Chronomancer')[1] && slotIdx === 0) {
-  gameState.lastInstantSlot1CardId = cardDef.id;
-  gameState.lastSlot1CardId = cardDef.id;
-  spawnShockwave(px, py, 64, 0x2dd4bf, 4, 20);
-  spawnFloatingText(px, py - 24, `ACCELERATED SLOT 1: [${cardDef.name}]!`, '#2dd4bf');
-
-  gameState.isExecuting = true;
-  renderUI();
-  try {
-   await resolveSingleCardAction(cardObj, 0, false);
-   gameState.discardPile.push(cardObj.id);
-  } finally {
-   gameState.isExecuting = false;
-  }
-  renderUI();
-  checkPostActionVictoryOrDefeat();
-  return;
- }
-
- gameState.sequence[slotIdx] = cardObj;
- renderUI();
-};
-
-window.removeCardFromSequence = function(slotIdx) {
- if (gameState.isExecuting) return;
- const cardObj = gameState.sequence[slotIdx];
- if (!cardObj) return;
- const cardDef = CARD_DATABASE[cardObj.id];
-
- const refund = cardObj.paidCost !== undefined ? cardObj.paidCost : cardDef.cost;
- if (cardDef.costType === 'hp') {
-  gameState.player.hp = Math.min(Math.max(gameState.player.maxHp, gameState.player.hp), gameState.player.hp + refund);
- } else if (cardDef.costType === 'cash') {
-  gameState.cash = (gameState.cash || 0) + refund;
- } else if (cardDef.costType === 'chronos') {
-  gameState.chronos = Math.min(gameState.maxChronos, gameState.chronos + refund);
- } else if (cardDef.costType === 'mana') {
-  gameState.player.mana = Math.min(gameState.player.maxMana, gameState.player.mana + refund);
-  gameState.manaSpentThisTurn = Math.max(0, gameState.manaSpentThisTurn - refund);
- } else {
-  gameState.currentEnergy += refund;
- }
-
- gameState.sequence[slotIdx] = null;
- gameState.hand.push(cardObj);
- renderUI();
-};
-
-window.moveCardToVault = function(e, handIdx) {
- e.stopPropagation();
- if (gameState.isExecuting) return;
- const maxVaultSlots = getMaxVaultSlots(gameState.classType);
- if (gameState.vault.length >= maxVaultSlots) {
-  showToast(`Stasis Vault is full (Max ${maxVaultSlots} Card${maxVaultSlots > 1 ? 's' : ''})!`, 'var(--accent-purple)');
-  return;
- }
- const cardObj = gameState.hand[handIdx];
- if (!cardObj) return;
- cardObj.turnsInVault = 0;
- gameState.hand.splice(handIdx, 1);
- gameState.vault.push(cardObj);
- renderUI();
-};
-
-window.retrieveCardFromVault = async function(vaultIdx) {
- if (gameState.isExecuting) return;
- const cardObj = gameState.vault[vaultIdx];
- if (!cardObj) return;
-
- const px = playerSprite ? playerSprite.x : 200;
- const py = playerSprite ? playerSprite.y : 138;
-
- if (cardObj.id === 'assembly_blueprint') {
-  gameState.vault.splice(vaultIdx, 1);
-  gameState.discardPile.push(cardObj.id);
-  deployOrRefundArtificerTurret(px, py, 'auto_turret');
-  renderUI();
-  return;
- }
-
- cardObj.wasUnvaultedThisTurn = true;
- gameState.vault.splice(vaultIdx, 1);
- gameState.hand.push(cardObj);
- renderUI();
-};
-
-window.scrapHandCard = async function(e, handIdx) {
- e.stopPropagation();
- if (gameState.isExecuting) return;
- if (gameState.scrapsUsedThisTurn >= gameState.scrapLimit) {
-  showToast(`Scrap capacity reached! Max ${gameState.scrapLimit} card${gameState.scrapLimit > 1 ? 's' : ''} per turn.`, 'var(--accent-gold)');
-  return;
- }
- const cardObj = gameState.hand[handIdx];
- if (!cardObj) return;
- const cardDef = CARD_DATABASE[cardObj.id];
- const px = playerSprite ? playerSprite.x : 200;
- const py = playerSprite ? playerSprite.y : 138;
-
- gameState.hand.splice(handIdx, 1);
- gameState.discardPile.push(cardObj.id);
- gameState.scrapsUsedThisTurn += 1;
- gameState.totalScrapsInBattle += 1;
-
- // Mob Boss T1 Mastery: Syndicate Boss (+$20 Cash & +2 Notoriety on Scrap)
- if (gameState.classType === 'Mob Boss' && getClassUnlockedArray('Mob Boss')[0]) {
-  gainCash(20, px, py, '🎩 FENCED ON STREET: +$20 CASH!', true);
-  gainNotoriety(2, px, py);
- } else {
-  let energyGain = 1 + (gameState.nextScrapBonusEnergy || 0);
+  gameState.hand = [];
+  gameState.vault = [];
+  gameState.sequence = [null, null, null];
+  gameState.scrappedThisTurn = 0;
+  gameState.totalScrappedThisBattle = 0;
+  gameState.bonusScrapLimitThisTurn = 0;
   gameState.nextScrapBonusEnergy = 0;
-  gameState.currentEnergy += energyGain;
-  spawnFloatingText(px, py - 24, `SCRAPPED → +${energyGain} ENERGY`, '#f59e0b');
- }
-
- if (cardDef.id === 'bastion_scrap') {
-  addPlayerShield(12, px, py);
-  if (gameState.classType !== 'Blood Reaver') {
-   spawnFloatingText(px, py - 42, 'BASTION SCRAP → +12 SHIELD!', '#38bdf8');
-  }
- }
-
- if (cardDef.id === 'reinforced_plating') {
-  gainParts(2, px, py, 'PLATING SCRAPPED → +2 PARTS!');
- }
-
- if (cardDef.id === 'scrap_recycler') {
-  gameState.currentEnergy += 2;
-  drawCardsForTurn(false);
-  spawnFloatingText(px, py - 42, 'RECYCLER SCRAPPED → +2⚡ & DRAW!', '#f59e0b');
- }
-
- if (cardDef.id === 'salvage_magnet') {
-  gainParts(1, px, py, 'MAGNET SCRAPPED → +1 PART!');
- }
-
- if (cardDef.id === 'deja_vu') {
-  gainChronos(1, px, py, 'DÉJÀ VU SCRAPPED → +1 CHRONOS!');
-  drawCardsForTurn(false);
- }
-
- if (cardDef.id === 'money_laundering') {
-  gainCash(25, px, py, 'LAUNDERED SCRAP → +$25 CASH!', true);
-  gainNotoriety(2, px, py);
-  gameState.currentEnergy += 1;
- }
-
- // Artificer T1 Mastery: Master Salvager (+1 Part & 4 DMG Scrap Bolt)
- if (gameState.classType === 'Artificer' && getClassUnlockedArray('Artificer')[0]) {
-  gainParts(1, px, py);
-  const activeEnemies = gameState.enemies.filter(en => en.hp > 0);
-  if (activeEnemies.length > 0) {
-   const target = activeEnemies[0];
-   const tIdx = gameState.enemies.indexOf(target);
-   const eSprite = enemySprites[tIdx];
-   const tx = eSprite ? eSprite.x : 750;
-   const ty = eSprite ? eSprite.y : 138;
-   target.hp = Math.max(0, target.hp - 4);
-   spawnLightningBolt(px + 18, py, tx, ty, 0xf59e0b, 0xfef08a);
-   spawnFloatingText(tx, ty - 24, 'SALVAGE BOLT -4 HP', '#f59e0b');
-  }
- }
-
- // Artificer T3 Mastery: Singularity Core (Every 4th Scrap triggers 20 AoE DMG & +15 Shield)
- if (gameState.classType === 'Artificer' && getClassUnlockedArray('Artificer')[2] && gameState.totalScrapsInBattle % 4 === 0) {
-  addPlayerShield(15, px, py);
-  spawnShockwave(px, py, 145, 0xf59e0b, 7, 28);
-  spawnFloatingText(px, py - 46, 'SINGULARITY CORE MELTDOWN (20 AOE + 15 SHIELD)!', '#fef08a');
-  gameState.enemies.forEach((en, idx) => {
-   if (en.hp > 0) {
-    en.hp = Math.max(0, en.hp - 20);
-    const sp = enemySprites[idx];
-    if (sp) {
-     spawnShockwave(sp.x, sp.y, 75, 0xf59e0b, 5, 22);
-     spawnFloatingText(sp.x, sp.y - 26, '-20 CORE BLAST', '#f59e0b');
-    }
-   }
-  });
- }
-
- renderUI();
- checkPostActionVictoryOrDefeat();
-};
-
-window.restAndCharge = async function() {
- if (gameState.isExecuting) return;
- gameState.isExecuting = true;
-
- const px = playerSprite ? playerSprite.x : 200;
- const py = playerSprite ? playerSprite.y : 138;
-
- if (gameState.classType === 'Chronomancer' && getClassUnlockedArray('Chronomancer')[2]) {
-  gameState.restBonusActiveNextTurn = true;
-  spawnShockwave(px, py, 85, 0x2dd4bf, 5, 26);
-  spawnFloatingText(px, py - 24, 'SOVEREIGN OF TIME (+2 TEMP SLOTS & VAULT ECHOES)!', '#2dd4bf');
-
-  const vaultCopy = [...gameState.vault];
-  for (let v = 0; v < vaultCopy.length; v++) {
-   const vCardObj = vaultCopy[v];
-   const vDef = CARD_DATABASE[vCardObj.id];
-   if (vDef) {
-    spawnFloatingText(px, py - 42, `VAULT ECHO: ${vDef.name.toUpperCase()}!`, '#38bdf8');
-    await resolveSingleCardAction(vCardObj, 0, true);
-    await new Promise(r => setTimeout(r, 260 * gameState.speedMultiplier));
-   }
-  }
- } else {
-  gameState.restBonusActiveNextTurn = true;
-  spawnShockwave(px, py, 65, 0xf59e0b, 4, 24);
-  spawnFloatingText(px, py - 24, 'RESTING (+1 SLOT NEXT TURN)', '#f59e0b');
- }
-
- if (gameState.chronoEchoPlayedThisTurn) {
-  gameState.nextTurnBonusEnergy += 1;
-  gainMana(1, px, py, 'CHRONO ECHO → +1 MANA!');
- }
-
- await new Promise(r => setTimeout(r, 380 * gameState.speedMultiplier));
- await executeEnemyTurns();
- endPlayerTurnCleanup();
-};
-
-// --- SINGLE CARD ACTION RESOLVER (SUPPORTS NORMAL & PARADOX ECHO CASTS) ---
-async function resolveSingleCardAction(cardObj, slotIndex, isEchoCast = false) {
- const cardDef = CARD_DATABASE[cardObj.id];
- if (!cardDef) return;
- const echoScale = isEchoCast ? 0.5 : 1.0;
-
- const activeEnemies = gameState.enemies.filter(e => e.hp > 0);
- const targetEnemy = activeEnemies[0];
- const targetIdx = gameState.enemies.indexOf(targetEnemy);
- const targetSprite = targetIdx !== -1 ? enemySprites[targetIdx] : null;
-
- const srcPos = { x: playerSprite ? playerSprite.x : 200, y: playerSprite ? playerSprite.y : 138 };
- const tgtPos = { x: targetSprite ? targetSprite.x : 750, y: targetSprite ? targetSprite.y : 138 };
-
- // Spellweaver Prism Tome Echo Check
- let triggerTomeEchoAfter = false;
- if (!isEchoCast && cardDef.category === 'tome' && gameState.nextTomeEchoThisTurn && cardDef.id !== 'spellweaver_prism') {
-  gameState.nextTomeEchoThisTurn = false;
-  triggerTomeEchoAfter = true;
- }
-
- // Card-specific immediate utility hooks
- if (cardDef.id === 'chrono_slash' && slotIndex === 0) {
-  gainChronos(1, srcPos.x, srcPos.y);
- }
- if (cardDef.id === 'stasis_surge') {
-  gainChronos(1, srcPos.x, srcPos.y);
-  drawTypeFromPile('action', 1);
- }
- if (cardDef.id === 'stasis_condenser') {
-  gameState.vault.forEach(v => v.turnsInVault = (v.turnsInVault || 0) + 2);
-  spawnFloatingText(srcPos.x, srcPos.y - 38, 'STASIS VAULT +2 TURNS!', '#2dd4bf');
- }
- if (cardDef.id === 'chrono_rewind') {
-  applyDefenseCard(cardDef, srcPos, tgtPos, echoScale, isEchoCast);
-  gameState.currentEnergy += 1;
-  const rewindId = gameState.lastSlot1CardId || gameState.lastInstantSlot1CardId;
-  if (rewindId && CARD_DATABASE[rewindId]) {
-   gameState.hand.push({ instanceId: Math.random().toString(36).substring(7), id: rewindId, isNew: true, turnsInVault: 0, wasUnvaultedThisTurn: false });
-   spawnFloatingText(srcPos.x, srcPos.y - 40, `REWIND → [${CARD_DATABASE[rewindId].name}] RETURNED!`, '#2dd4bf');
-  } else {
-   drawTypeFromPile('action', 1);
-  }
-  if (triggerTomeEchoAfter) await resolveSingleCardAction(cardObj, slotIndex, true);
-  return;
- }
- if (cardDef.id === 'paradox_anchor') {
-  applyDefenseCard(cardDef, srcPos, tgtPos, echoScale, isEchoCast);
-  gameState.currentEnergy += 1;
-  drawTypeFromPile('tome', 1);
-  spawnFloatingText(srcPos.x, srcPos.y - 40, 'PARADOX ANCHOR: +1⚡ & TOME DRAW!', '#2dd4bf');
-  if (triggerTomeEchoAfter) await resolveSingleCardAction(cardObj, slotIndex, true);
-  return;
- }
- if (cardDef.id === 'temporal_fracture') {
-  gameState.guaranteedDodgeCount += 1;
-  playCardVFX(cardDef.id, srcPos, tgtPos);
-  const aoeDmg = Math.max(1, Math.round(16 * echoScale));
-  gameState.enemies.forEach((en, idx) => {
-   if (en.hp > 0) {
-    en.hp = Math.max(0, en.hp - aoeDmg);
-    const sp = enemySprites[idx];
-    if (sp) spawnFloatingText(sp.x, sp.y - 26, `-${aoeDmg} FRACTURE`, '#2dd4bf');
-   }
-  });
-  spawnFloatingText(srcPos.x, srcPos.y - 36, '+1 GUARANTEED DODGE!', '#4ade80');
-  if (triggerTomeEchoAfter) await resolveSingleCardAction(cardObj, slotIndex, true);
-  return;
- }
-
- // Mob Boss & Contraband Special Utility Cards
- if (cardDef.id === 'syndicate_ledger') {
-  gainCash(Math.round(15 * echoScale), srcPos.x, srcPos.y, undefined, true);
-  gainNotoriety(2, srcPos.x, srcPos.y);
-  drawTypeFromPile('action', 1);
-  gameState.enforcers.forEach(e => e.hp = Math.min(e.maxHp || 12, e.hp + 5));
-  playCardVFX(cardDef.id, srcPos, tgtPos);
-  if (triggerTomeEchoAfter) await resolveSingleCardAction(cardObj, slotIndex, true);
-  return;
- }
- if (cardDef.id === 'syndicate_armory') {
-  applyDefenseCard(cardDef, srcPos, tgtPos, echoScale, isEchoCast);
-  gainNotoriety(3, srcPos.x, srcPos.y);
-  await fireAllMobEnforcers(1.0);
-  if (triggerTomeEchoAfter) await resolveSingleCardAction(cardObj, slotIndex, true);
-  return;
- }
- if (cardDef.id === 'hired_goon_contract') {
-  applyDefenseCard(cardDef, srcPos, tgtPos, echoScale, isEchoCast);
-  hireOrReinforceEnforcer(srcPos.x, srcPos.y);
-  if (triggerTomeEchoAfter) await resolveSingleCardAction(cardObj, slotIndex, true);
-  return;
- }
- if (cardDef.id === 'mercenary_contract') {
-  hireOrReinforceEnforcer(srcPos.x, srcPos.y);
-  gameState.currentEnergy += 1;
-  spawnFloatingText(srcPos.x, srcPos.y - 44, '+1 ENERGY!', '#38bdf8');
-  if (triggerTomeEchoAfter) await resolveSingleCardAction(cardObj, slotIndex, true);
-  return;
- }
- if (cardDef.id === 'black_market_voucher') {
-  gainCash(Math.round(18 * echoScale), srcPos.x, srcPos.y, undefined, true);
-  gainNotoriety(3, srcPos.x, srcPos.y);
-  drawTypeFromPile('action', 1);
-  if (triggerTomeEchoAfter) await resolveSingleCardAction(cardObj, slotIndex, true);
-  return;
- }
- if (cardDef.id === 'adrenaline_syringe') {
-  gameState.currentEnergy += 2;
-  drawTypeFromPile('action', 1);
-  playCardVFX(cardDef.id, srcPos, tgtPos);
-  spawnFloatingText(srcPos.x, srcPos.y - 26, '💉 ADRENALINE: +2 ENERGY & DRAW!', '#4ade80');
-  if (triggerTomeEchoAfter) await resolveSingleCardAction(cardObj, slotIndex, true);
-  return;
- }
- if (cardDef.id === 'offers_you_cant_refuse') {
-  gameState.intimidateMultiplier = 0.5;
-  applyDefenseCard(cardDef, srcPos, tgtPos, echoScale, isEchoCast);
-  gainNotoriety(3, srcPos.x, srcPos.y);
-  drawTypeFromPile('action', 1);
-  spawnFloatingText(srcPos.x, srcPos.y - 44, '🎩 INTIMIDATED: ENEMY ATK -50% THIS TURN!', '#eab308');
-  if (triggerTomeEchoAfter) await resolveSingleCardAction(cardObj, slotIndex, true);
-  return;
- }
- if (cardDef.id === 'family_consigliere') {
-  applyDefenseCard(cardDef, srcPos, tgtPos, echoScale, isEchoCast);
-  gainNotoriety(2, srcPos.x, srcPos.y);
-  gameState.restockDiscount = Math.min(10, (gameState.restockDiscount || 0) + 5);
-  if (gameState.sequence.length < 5) {
-   gameState.sequence.push(null);
-  }
-  spawnFloatingText(srcPos.x, srcPos.y - 44, '+1 TEMP SLOT & -$5 RESTOCK COST!', '#eab308');
-  if (triggerTomeEchoAfter) await resolveSingleCardAction(cardObj, slotIndex, true);
-  return;
- }
- if (cardDef.id === 'loaded_dice') {
-  gameState.currentEnergy += 1;
-  gameState.nextHitCritBonus += 0.15;
-  drawCardsForTurn(false);
-  playCardVFX(cardDef.id, srcPos, tgtPos);
-  spawnFloatingText(srcPos.x, srcPos.y - 28, '🎲 LOADED DICE: +1⚡, +15% CRIT & DRAW!', '#eab308');
-  if (triggerTomeEchoAfter) await resolveSingleCardAction(cardObj, slotIndex, true);
-  return;
- }
- if (cardDef.id === 'hollow_point_mag') {
-  gameState.nextHitBonusDmg += 12;
-  gameState.guaranteedCritNextAttack = true;
-  gameState.nextHitBonusHemorrhage += 3;
-  playCardVFX(cardDef.id, srcPos, tgtPos);
-  spawnFloatingText(srcPos.x, srcPos.y - 28, '💥 HOLLOW-POINT: +12 DMG, 100% CRIT & +3 BLEED!', '#fb7185');
-  if (triggerTomeEchoAfter) await resolveSingleCardAction(cardObj, slotIndex, true);
-  return;
- }
- if (cardDef.id === 'syndicate_bribe') {
-  gameState.currentEnergy += 2;
-  if (gameState.sequence.length < 5) {
-   gameState.sequence.push(null);
-  }
-  drawCardsForTurn(false);
-  playCardVFX(cardDef.id, srcPos, tgtPos);
-  spawnFloatingText(srcPos.x, srcPos.y - 28, '💵 SYNDICATE BRIBE: +2⚡, +1 SLOT & DRAW!', '#4ade80');
-  if (triggerTomeEchoAfter) await resolveSingleCardAction(cardObj, slotIndex, true);
-  return;
- }
- if (cardDef.id === 'godfathers_decree') {
-  addPlayerShield(Math.round(20 * echoScale), srcPos.x, srcPos.y);
-  if (!isEchoCast) gameState.maxEnergy += 1;
-  gameState.currentEnergy += 1;
-  playCardVFX(cardDef.id, srcPos, tgtPos);
-  const aoeDmg = Math.max(1, Math.round(20 * echoScale));
-  gameState.enemies.forEach((en, idx) => {
-   if (en.hp > 0) {
-    en.hp = Math.max(0, en.hp - aoeDmg);
-    const sp = enemySprites[idx];
-    if (sp) spawnFloatingText(sp.x, sp.y - 26, `-${aoeDmg} DECREE`, '#eab308');
-   }
-  });
-  spawnFloatingText(srcPos.x, srcPos.y - 36, '👑 +1 MAX ENERGY & +20 SHIELD!', '#fef08a');
-  if (triggerTomeEchoAfter) await resolveSingleCardAction(cardObj, slotIndex, true);
-  return;
- }
- if (cardDef.id === 'drive_by_ambush') {
-  playCardVFX(cardDef.id, srcPos, tgtPos);
-  const aoeDmg = Math.max(1, Math.round(12 * echoScale));
-  gameState.enemies.forEach((en, idx) => {
-   if (en.hp > 0) {
-    en.hp = Math.max(0, en.hp - aoeDmg);
-    const sp = enemySprites[idx];
-    if (sp) spawnFloatingText(sp.x, sp.y - 26, `-${aoeDmg} DRIVE-BY`, '#eab308');
-   }
-  });
-  await fireAllMobEnforcers(1.0);
-  return;
- }
-
- // Artificer Utility & Construct Schematic Cards
- if (cardDef.id === 'wrench_toss' || cardDef.id === 'salvage_magnet') {
-  gainParts(1, srcPos.x, srcPos.y);
- }
- if (cardDef.id === 'overclock_blueprint') {
-  gainParts(1, srcPos.x, srcPos.y);
-  gameState.turretBonusVolleysThisTurn += 1;
-  drawTypeFromPile('action', 1);
-  playCardVFX(cardDef.id, srcPos, tgtPos);
-  spawnFloatingText(srcPos.x, srcPos.y - 28, 'OVERCLOCK: CONSTRUCTS +1 VOLLEY!', '#f59e0b');
-  if (triggerTomeEchoAfter) await resolveSingleCardAction(cardObj, slotIndex, true);
-  return;
- }
- if (cardDef.id === 'overdrive_core') {
-  gainParts(2, srcPos.x, srcPos.y);
-  gameState.turrets.forEach(t => t.hp = Math.min(t.maxHp || 10, t.hp + 6));
-  playCardVFX(cardDef.id, srcPos, tgtPos);
-  if (gameState.turrets.length > 0) {
-   spawnFloatingText(srcPos.x, srcPos.y - 38, 'OVERDRIVE CORE: +6 HP & IMMEDIATE VOLLEY!', '#4ade80');
-   await fireAllArtificerTurrets(1.0);
-  }
-  if (triggerTomeEchoAfter) await resolveSingleCardAction(cardObj, slotIndex, true);
-  return;
- }
- if (cardDef.id === 'weld_and_patch') {
-  applyDefenseCard(cardDef, srcPos, tgtPos, echoScale, isEchoCast);
-  gameState.turrets.forEach(t => t.hp = Math.min(t.maxHp || 10, t.hp + 6));
-  if (gameState.turrets.length > 0) {
-   spawnFloatingText(srcPos.x, srcPos.y - 38, 'CONSTRUCTS REPAIRED (+6 HP)!', '#4ade80');
-  }
-  return;
- }
- if (cardDef.id === 'reactive_armor') {
-  applyDefenseCard(cardDef, srcPos, tgtPos, echoScale, isEchoCast);
-  gameState.reactiveArmorActive = true;
-  spawnFloatingText(srcPos.x, srcPos.y - 38, 'REACTIVE ARMOR ONLINE!', '#f59e0b');
-  if (triggerTomeEchoAfter) await resolveSingleCardAction(cardObj, slotIndex, true);
-  return;
- }
- if (cardDef.id === 'assembly_blueprint' || cardDef.constructType) {
-  playCardVFX(cardDef.id, srcPos, tgtPos);
-  deployOrRefundArtificerTurret(srcPos.x, srcPos.y, cardDef.constructType || 'auto_turret');
-  if (triggerTomeEchoAfter) await resolveSingleCardAction(cardObj, slotIndex, true);
-  return;
- }
-
- // Blood Reaver Utility Cards
- if (cardDef.id === 'blood_suck') {
-  playCardVFX(cardDef.id, srcPos, tgtPos);
-  if (targetEnemy && (targetEnemy.hemorrhage || 0) > 0) {
-   const stacks = targetEnemy.hemorrhage;
-   targetEnemy.hemorrhage = 0;
-   const dmg = Math.max(1, Math.round(stacks * 2 * echoScale));
-   const heal = Math.max(1, Math.round(stacks * 4 * echoScale));
-   targetEnemy.hp = Math.max(0, targetEnemy.hp - dmg);
-   healPlayerHp(heal, srcPos.x, srcPos.y, `🩸 SIPHONED +${heal} HP!`);
-   spawnFloatingText(tgtPos.x, tgtPos.y - 26, `🩸 DRAINED ${stacks} STACKS (-${dmg} HP)`, '#fb7185');
-  } else {
-   spawnFloatingText(tgtPos.x, tgtPos.y - 24, 'NO HEMORRHAGE STACKS', '#94a3b8');
-  }
-  if (triggerTomeEchoAfter) await resolveSingleCardAction(cardObj, slotIndex, true);
-  return;
- }
- if (cardDef.id === 'coagulate') {
-  applyDefenseCard(cardDef, srcPos, tgtPos, echoScale, isEchoCast);
-  if (gameState.player.hp > gameState.player.maxHp) {
-   gameState.nextTurnBonusEnergy += 1;
-   spawnFloatingText(srcPos.x, srcPos.y - 46, 'OVERHEALED → +1⚡ NEXT TURN!', '#fb7185');
-  }
-  return;
- }
- if (cardDef.id === 'sanguine_ward') {
-  applyDefenseCard(cardDef, srcPos, tgtPos, echoScale, isEchoCast);
-  gameState.enemies.forEach((en, idx) => {
-   if (en.hp > 0) {
-    en.hemorrhage = (en.hemorrhage || 0) + 2;
-    const sp = enemySprites[idx];
-    if (sp) spawnFloatingText(sp.x, sp.y - 26, '+2 HEMORRHAGE', '#fb7185');
-   }
-  });
-  if (triggerTomeEchoAfter) await resolveSingleCardAction(cardObj, slotIndex, true);
-  return;
- }
-
- // Mage, Warrior, Rogue & Neutral Utility Cards
- if (cardDef.id === 'arcane_battery') {
-  gameState.nextTurnBonusEnergy += 1;
-  drawTypeFromPile('action', 1);
-  playCardVFX(cardDef.id, srcPos, tgtPos);
-  spawnFloatingText(srcPos.x, srcPos.y - 24, '+1 ENERGY NEXT TURN & TUTORED!', '#c084fc');
-  if (triggerTomeEchoAfter) await resolveSingleCardAction(cardObj, slotIndex, true);
-  return;
- } else if (cardDef.id === 'chrono_catalyst') {
-  gameState.currentEnergy += 1;
-  addPlayerShield(Math.round(6 * echoScale), srcPos.x, srcPos.y);
-  drawCardsForTurn(false);
-  playCardVFX(cardDef.id, srcPos, tgtPos);
-  spawnFloatingText(srcPos.x, srcPos.y - 26, 'CHRONO CATALYST: +1⚡, +6 SHIELD & DRAW!', '#2dd4bf');
-  if (triggerTomeEchoAfter) await resolveSingleCardAction(cardObj, slotIndex, true);
-  return;
- } else if (cardDef.id === 'astral_resonance') {
-  addPlayerShield(Math.round(8 * echoScale), srcPos.x, srcPos.y);
-  playCardVFX(cardDef.id, srcPos, tgtPos);
-  const aoeDmg = Math.max(1, Math.round(15 * echoScale));
-  gameState.enemies.forEach((en, idx) => {
-   if (en.hp > 0) {
-    en.hp = Math.max(0, en.hp - aoeDmg);
-    const sp = enemySprites[idx];
-    if (sp) spawnFloatingText(sp.x, sp.y - 26, `-${aoeDmg} ASTRAL`, '#c084fc');
-   }
-  });
-  spawnFloatingText(srcPos.x, srcPos.y - 34, '+8 ASTRAL SHIELD!', '#38bdf8');
-  return;
- } else if (cardDef.id === 'spellweaver_prism') {
-  applyDefenseCard(cardDef, srcPos, tgtPos, echoScale, isEchoCast);
-  gainMana(2, srcPos.x, srcPos.y, '+2 MANA & TOME ECHO PRIMED!');
-  gameState.nextTomeEchoThisTurn = true;
-  return;
- } else if (cardDef.id === 'astral_singularity') {
-  gameState.currentEnergy += 1;
-  playCardVFX(cardDef.id, srcPos, tgtPos);
-  const aoeDmg = Math.max(1, Math.round(24 * echoScale));
-  gameState.enemies.forEach((en, idx) => {
-   if (en.hp > 0) {
-    en.hp = Math.max(0, en.hp - aoeDmg);
-    const sp = enemySprites[idx];
-    if (sp) spawnFloatingText(sp.x, sp.y - 26, `-${aoeDmg} SINGULARITY`, '#c084fc');
-   }
-  });
-  spawnFloatingText(srcPos.x, srcPos.y - 34, '🌌 +1 ENERGY!', '#38bdf8');
-  if (triggerTomeEchoAfter) await resolveSingleCardAction(cardObj, slotIndex, true);
-  return;
- } else if (cardDef.id === 'cleaving_execution') {
-  playCardVFX(cardDef.id, srcPos, tgtPos);
-  const shieldBonus = (gameState.player.shield || 0) >= 15 ? 10 : 0;
-  const aoeDmg = Math.max(1, Math.round((16 + shieldBonus) * echoScale));
-  gameState.enemies.forEach((en, idx) => {
-   if (en.hp > 0) {
-    en.hp = Math.max(0, en.hp - aoeDmg);
-    const sp = enemySprites[idx];
-    if (sp) spawnFloatingText(sp.x, sp.y - 26, `-${aoeDmg} CLEAVE`, '#ef4444');
-   }
-  });
-  return;
- } else if (cardDef.id === 'smokebomb_barrage') {
-  applyDefenseCard(cardDef, srcPos, tgtPos, echoScale, isEchoCast);
-  gameState.guaranteedDodgeCount += 1;
-  triggerRogueShadowCounter(srcPos.x, srcPos.y, 'SMOKE → 100% CRIT PRIMED!');
-  gameState.enemies.forEach((en, idx) => {
-   if (en.hp > 0) {
-    en.poison = (en.poison || 0) + 2;
-    const sp = enemySprites[idx];
-    if (sp) spawnFloatingText(sp.x, sp.y - 26, '+2 POISON', '#4ade80');
-   }
-  });
-  if (triggerTomeEchoAfter) await resolveSingleCardAction(cardObj, slotIndex, true);
-  return;
- } else if (cardDef.id === 'chrono_echo') {
-  gameState.chronoEchoPlayedThisTurn = true;
-  applyDefenseCard(cardDef, srcPos, tgtPos, echoScale, isEchoCast);
-  drawCardsForTurn(false);
-  if (triggerTomeEchoAfter) await resolveSingleCardAction(cardObj, slotIndex, true);
-  return;
- } else if (cardDef.id === 'prismatic_catalyst') {
-  gameState.attackDiscountThisTurn += 1;
-  playCardVFX(cardDef.id, srcPos, tgtPos);
-  spawnFloatingText(srcPos.x, srcPos.y - 24, '-1⚡ ATTACK COST THIS TURN', '#38bdf8');
-  if (triggerTomeEchoAfter) await resolveSingleCardAction(cardObj, slotIndex, true);
-  return;
- } else if (cardDef.id === 'juggernaut_stance') {
-  gameState.juggernautStanceActive = true;
-  applyDefenseCard(cardDef, srcPos, tgtPos, echoScale, isEchoCast);
-  spawnFloatingText(srcPos.x, srcPos.y - 40, 'SHIELD LOCKED FOR 1 TURN', '#38bdf8');
-  if (triggerTomeEchoAfter) await resolveSingleCardAction(cardObj, slotIndex, true);
-  return;
- } else if (cardDef.id === 'shadow_step') {
-  applyDefenseCard(cardDef, srcPos, tgtPos, echoScale, isEchoCast);
-  gameState.guaranteedDodgeCount += 1;
-  triggerRogueShadowCounter(srcPos.x, srcPos.y, 'EVASION → 100% CRIT PRIMED!');
-  if (triggerTomeEchoAfter) await resolveSingleCardAction(cardObj, slotIndex, true);
-  return;
- } else if (cardDef.id === 'vault_recycle') {
-  playCardVFX(cardDef.id, srcPos, tgtPos);
-  if (gameState.vault.length > 0 && gameState.sequence[0] === null) {
-   const vCard = gameState.vault.pop();
-   vCard.wasUnvaultedThisTurn = true;
-   gameState.sequence[0] = vCard;
-   spawnFloatingText(srcPos.x, srcPos.y - 24, 'VAULT CARD RECYCLED TO SLOT 1!', '#c084fc');
-  }
-  drawCardsForTurn(false);
-  if (triggerTomeEchoAfter) await resolveSingleCardAction(cardObj, slotIndex, true);
-  return;
- }
-
- if (cardDef.type === 'ATTACK' && targetEnemy) {
-  let hitCount = cardDef.hits || 1;
-  if (cardDef.id === 'rift_strike' && cardObj.wasUnvaultedThisTurn) {
-   hitCount = 2;
-   spawnFloatingText(srcPos.x, srcPos.y - 44, 'RIFT DOUBLE STRIKE!', '#2dd4bf');
-  }
-
-  for (let h = 0; h < hitCount; h++) {
-   if (!targetEnemy || targetEnemy.hp <= 0) break;
-
-   let baseDmg = cardDef.value || 0;
-
-   if (cardDef.id === 'overcharge_conduit') {
-    if (slotIndex === 2) {
-     gameState.currentEnergy += 1;
-     gainMana(1, srcPos.x, srcPos.y);
-     spawnFloatingText(srcPos.x, srcPos.y - 40, 'SLOT 3 OVERCHARGE (+1⚡ +1 MANA)', '#c084fc');
-    }
-   } else if (cardDef.id === 'volatile_reserve') {
-    baseDmg += (cardObj.turnsInVault || 0) * 6;
-   } else if (cardDef.id === 'mana_overload') {
-    baseDmg += (gameState.manaSpentThisTurn || 0) * 6;
-   } else if (cardDef.id === 'patience_fury') {
-    if (gameState.restBonusActiveThisTurn) {
-     baseDmg = 24;
-     addPlayerShield(8, srcPos.x, srcPos.y);
-    }
-   } else if (cardDef.id === 'battering_rampart') {
-    baseDmg = 22;
-   } else if (cardDef.id === 'shield_slam') {
-    baseDmg = gameState.player.shield;
-    gameState.player.shield = 0;
-   } else if (cardDef.id === 'titans_counterblow') {
-    baseDmg = 14 + Math.floor((gameState.player.shield || 0) * 0.5);
-   } else if (cardDef.id === 'nightblade_ambush') {
-    if ((targetEnemy.poison || 0) > 0 && h === 0) {
-     gameState.currentEnergy += 1;
-     spawnFloatingText(srcPos.x, srcPos.y - 40, 'NIGHTBLADE VENOM → +1⚡!', '#4ade80');
-    }
-   } else if (cardDef.id === 'venom_spreader') {
-    const extraStacks = Math.min(5, targetEnemy.poison || 0);
-    targetEnemy.poison = (targetEnemy.poison || 0) + extraStacks;
-    spawnFloatingText(tgtPos.x, tgtPos.y - 42, `+${extraStacks} VENOM SPREAD`, '#4ade80');
-   } else if (cardDef.id === 'shadow_prep') {
-    gameState.restBonusActiveNextTurn = true;
-    gameState.enemies.forEach((en, idx) => {
-     if (en.hp > 0) {
-      en.poison = (en.poison || 0) + 3;
-      if (enemySprites[idx]) spawnPoisonBubbles(enemySprites[idx].x, enemySprites[idx].y, 8);
-     }
-    });
-    spawnFloatingText(srcPos.x, srcPos.y - 24, 'SHADOW PREP (+3 ALL POISON & REST BONUS)', '#4ade80');
-   } else if (cardDef.id === 'venom_surge') {
-    const aheadCount = gameState.sequence.slice(0, slotIndex).filter(c => c !== null).length;
-    targetEnemy.poison = (targetEnemy.poison || 0) + (aheadCount * 3);
-    spawnFloatingText(tgtPos.x, tgtPos.y - 42, `SURGE +${aheadCount * 3} POISON`, '#4ade80');
-   } else if (cardDef.id === 'catalytic_rupture') {
-    const ruptureDmg = Math.floor((targetEnemy.poison || 0) * 1.5);
-    targetEnemy.poison = 0;
-    baseDmg = ruptureDmg;
-   } else if (cardDef.id === 'entropy_bolt') {
-    const emptySlots = gameState.sequence.filter(s => s === null).length;
-    baseDmg = 8 + emptySlots * 4;
-   } else if (cardDef.id === 'capacitor_discharge') {
-    const spentParts = gameState.parts || 0;
-    gameState.parts = 0;
-    baseDmg = spentParts * 5;
-    spawnFloatingText(srcPos.x, srcPos.y - 36, `DISCHARGED ${spentParts} PARTS (${baseDmg} DMG)!`, '#f59e0b');
-   } else if (cardDef.id === 'scrap_cannon') {
-    baseDmg = 12 + (gameState.scrapsUsedThisTurn || 0) * 6;
-   } else if (cardDef.id === 'blood_boil') {
-    triggerHemorrhageOnEnemy(targetEnemy, targetSprite, 2, false);
-   } else if (cardDef.id === 'hemorrhagic_rupture') {
-    baseDmg = 8 + (targetEnemy.hemorrhage || 0) * 4;
-   } else if (cardDef.id === 'concrete_shoes') {
-    baseDmg = 16 + (gameState.enforcers ? gameState.enforcers.length * 5 : 0);
-   } else if (cardDef.id === 'scrap_engine') {
-    gameState.nextScrapBonusEnergy += 2;
-    spawnFloatingText(srcPos.x, srcPos.y - 24, 'NEXT SCRAP GIVES +2⚡', '#f59e0b');
-   }
-
-   if (h === 0) {
-    baseDmg += gameState.nextHitBonusDmg;
-    gameState.nextHitBonusDmg = 0;
-
-    if (gameState.nextHitMultiplier && gameState.nextHitMultiplier > 1.0) {
-     baseDmg = Math.round(baseDmg * gameState.nextHitMultiplier);
-     gameState.nextHitMultiplier = 1.0;
-    }
-   }
-
-   // Mage T3 Mastery: Archmage Supremacy (Arcane Tome spells deal +20% DMG)
-   if (gameState.classType === 'Mage' && getClassUnlockedArray('Mage')[2] && cardDef.category === 'tome') {
-    baseDmg = Math.round(baseDmg * 1.20);
-   }
-
-   // Warrior T2 Mastery: Turtle Momentum (+25% DMG when Shield >= 15)
-   if (gameState.classType === 'Warrior' && getClassUnlockedArray('Warrior')[1] && (gameState.player.shield || 0) >= 15) {
-    baseDmg = Math.round(baseDmg * 1.25);
-   }
-
-   // Mob Boss T2 Mastery: Made Men (+3 DMG per active Enforcer)
-   if (gameState.classType === 'Mob Boss' && getClassUnlockedArray('Mob Boss')[1] && gameState.enforcers.length > 0) {
-    baseDmg += gameState.enforcers.length * 3;
-   }
-
-   // Chronomancer T1 Mastery: Temporal Anchor (+10% DMG on unvaulted cards)
-   if (gameState.classType === 'Chronomancer' && getClassUnlockedArray('Chronomancer')[0] && cardObj.wasUnvaultedThisTurn) {
-    baseDmg = Math.round(baseDmg * 1.10);
-   }
-
-   const timeTier = gameState.passives.TIME_WARP || 0;
-   if (slotIndex === 1 && timeTier >= 3) baseDmg = Math.round(baseDmg * 1.35);
-
-   const frenzyTier = gameState.passives.FRENZY || 0;
-   if (frenzyTier > 0) {
-    const missingPct = Math.max(0, (gameState.player.maxHp - gameState.player.hp) / gameState.player.maxHp);
-    baseDmg = Math.round(baseDmg * (1 + missingPct * 50 * 0.005 * frenzyTier));
-   }
-
-   const bfTier = gameState.passives.BLACK_FLASH || 0;
-   const effectiveCrit = getEffectiveCritChance();
-   const phantomAutoCrit = cardDef.id === 'phantom_ambush' && ((gameState.guaranteedDodgeCount || 0) > 0 || gameState.guaranteedCritNextAttack);
-   const isGuaranteedCrit = (h === 0 && gameState.guaranteedCritNextAttack === true) || phantomAutoCrit;
-   if (h === 0) {
-    gameState.guaranteedCritNextAttack = false;
-    gameState.nextHitCritBonus = 0;
-   }
-   const isCrit = baseDmg > 0 && (isGuaranteedCrit || Math.random() < effectiveCrit);
-
-   let critMult = bfTier >= 3 ? 2.25 : 2.0;
-   if (cardDef.id === 'golden_peacemaker') critMult = 2.5;
-   if (gameState.classType === 'Blood Reaver' && getClassUnlockedArray('Blood Reaver')[1] && (targetEnemy.hemorrhage || 0) > 0) {
-    critMult += 0.25;
-   }
-
-   let finalDmg = isCrit ? Math.round(baseDmg * critMult) : baseDmg;
-   finalDmg = Math.max(baseDmg > 0 ? 1 : 0, Math.round(finalDmg * echoScale));
-
-   if (h === 0) {
-    playCardVFX(cardDef.id, srcPos, tgtPos);
-   }
-
-   const totalBleedApplied = (cardDef.hemorrhage || 0) + (h === 0 ? (gameState.nextHitBonusHemorrhage || 0) : 0);
-   if (h === 0) gameState.nextHitBonusHemorrhage = 0;
-
-   if (totalBleedApplied > 0) {
-    targetEnemy.hemorrhage = (targetEnemy.hemorrhage || 0) + totalBleedApplied;
-    spawnParticles(tgtPos.x, tgtPos.y, 10, { colors: [0xdc2626, 0xfb7185], speed: 3.0, life: 20 });
-    spawnFloatingText(tgtPos.x, tgtPos.y - 36, `+${totalBleedApplied} HEMORRHAGE`, '#fb7185');
-   }
-
-   if (cardDef.poison) {
-    targetEnemy.poison = (targetEnemy.poison || 0) + cardDef.poison;
-    spawnFloatingText(tgtPos.x, tgtPos.y - 32, `+${cardDef.poison} POISON`, '#4ade80');
-   }
-
-   if (cardDef.burn) {
-    const extraBurn = (cardDef.id === 'thermite_rivets' && gameState.turrets.length > 0) ? 2 : 0;
-    const totalBurn = cardDef.burn + extraBurn;
-    targetEnemy.burn = (targetEnemy.burn || 0) + totalBurn;
-    spawnFloatingText(tgtPos.x, tgtPos.y - 34, `+${totalBurn} BURN`, '#f97316');
-   }
-
-   if (cardDef.id === 'spark') {
-    gainMana(1, srcPos.x, srcPos.y, '+1 MANA');
-   }
-
-   const igTier = gameState.passives.IGNITION || 0;
-   if (igTier > 0 && slotIndex === 2 && h === 0) {
-    finalDmg += igTier * 5;
-    spawnParticles(tgtPos.x, tgtPos.y, 14, { colors: [0xf97316, 0xfef08a], speed: 4.5, life: 22 });
-    spawnFloatingText(tgtPos.x, tgtPos.y - 45, `IGNITION +${igTier * 5}!`, '#f97316');
-   }
-
-   if (finalDmg > 0) {
-    const prevTargetHp = targetEnemy.hp;
-    targetEnemy.hp = Math.max(0, targetEnemy.hp - finalDmg);
-    if (isCrit) {
-     if (bfTier > 0) {
-      spawnBlackFlashVFX(tgtPos.x, tgtPos.y, bfTier);
-      spawnBlackFlashBanner(tgtPos.x, tgtPos.y - 54);
-      spawnFloatingText(tgtPos.x, tgtPos.y - 16, `${isGuaranteedCrit ? 'SHADOW ' : ''}CRIT -${finalDmg}!`, '#ff2a55');
-     } else {
-      spawnParticles(tgtPos.x, tgtPos.y, 14, { colors: [0xfacc15, 0xfef08a], speed: 4.5, life: 22 });
-      spawnFloatingText(tgtPos.x, tgtPos.y - 16, `${isGuaranteedCrit ? 'SHADOW ' : ''}CRIT -${finalDmg}!`, '#facc15');
-     }
-    } else {
-     spawnFloatingText(tgtPos.x, tgtPos.y - 16, `${isEchoCast ? 'ECHO ' : ''}-${finalDmg}`, '#f87171');
-    }
-
-    if (cardDef.id === 'void_cataclysm' && prevTargetHp > 0 && targetEnemy.hp === 0) {
-     gainMana(1, srcPos.x, srcPos.y, 'VOID CATACLYSM KILL → +1 MANA!');
-    }
-
-    // Mob Boss T1 Passive: Syndicate Shakedown (+$8 Cash & +1 ★ on Crit or Kill)
-    if (gameState.classType === 'Mob Boss' && getClassUnlockedArray('Mob Boss')[0] && (isCrit || targetEnemy.hp === 0)) {
-     gainCash(8, tgtPos.x, tgtPos.y, '🎩 SHAKEDOWN +$8 CASH!');
-     gainNotoriety(1, tgtPos.x, tgtPos.y);
-    }
-
-    // Bounty Hit Contract Payout on Kill
-    if (targetEnemy.hp === 0 && targetEnemy.hasBountyLock) {
-     targetEnemy.hasBountyLock = false;
-     gainCash(25, tgtPos.x, tgtPos.y, '💰 HIT CONTRACT PAID +$25 CASH!', true);
-     gainNotoriety(5, tgtPos.x, tgtPos.y);
-    }
-
-    if (cardDef.id === 'siphon_slash') {
-     healPlayerHp(Math.max(1, Math.round(3 * echoScale)), srcPos.x, srcPos.y);
-    } else if (cardDef.id === 'crimson_ascension') {
-     const isLow = gameState.player.hp < gameState.player.maxHp * 0.5;
-     healPlayerHp(Math.max(1, Math.round((isLow ? 14 : 8) * echoScale)), srcPos.x, srcPos.y, isLow ? '🩸 ASCENSION +14 HP!' : '+8 HP');
-    }
-
-    // Mob Boss Card Cash Rewards
-    if (cardDef.id === 'tommy_gun_spray') {
-     gainCash(Math.max(1, Math.round(5 * echoScale)), tgtPos.x, tgtPos.y);
-    } else if (cardDef.id === 'tommy_drum_extortion') {
-     gainCash(Math.max(1, Math.round(4 * echoScale)), tgtPos.x, tgtPos.y);
-    } else if (cardDef.id === 'shakedown') {
-     const isLowHp = targetEnemy.hp < targetEnemy.maxHp * 0.5;
-     const payout = Math.round((isLowHp ? 24 : 12) * echoScale);
-     gainCash(payout, tgtPos.x, tgtPos.y, isLowHp ? `💰 BRUTAL SHAKEDOWN +$${payout}!` : `+$${payout} CASH`, isLowHp);
-    } else if (cardDef.id === 'kingpins_ultimatum') {
-     gameState.gold += 15;
-     spawnCashExplosionVFX(tgtPos.x, tgtPos.y, 1.5);
-     spawnFloatingText(srcPos.x, srcPos.y - 34, '👑 KINGPIN PAYOUT: +15g RUN GOLD!', '#eab308');
-    } else if (cardDef.id === 'chicago_typewriter' && h === hitCount - 1) {
-     gainCash(8, tgtPos.x, tgtPos.y);
-    } else if (cardDef.id === 'golden_peacemaker') {
-     gainCash(15, tgtPos.x, tgtPos.y, '💰 GOLDEN SLUG +$15 CASH!', true);
-    } else if (cardDef.id === 'royal_flush') {
-     addPlayerShield(15, srcPos.x, srcPos.y);
-     healPlayerHp(10, srcPos.x, srcPos.y);
-     gameState.currentEnergy += 1;
-     gainCash(20, tgtPos.x, tgtPos.y, '🃏 ROYAL FLUSH +$20 CASH!', true);
-    }
-
-    // Blood Reaver Lifesteal & Sovereign Overheal
-    let lifestealRatio = (h === 0 ? (gameState.nextHitLifestealBonus || 0) : 0);
-    if (h === 0) gameState.nextHitLifestealBonus = 0;
-
-    if (frenzyTier >= 3) lifestealRatio += 0.15;
-    if (gameState.classType === 'Blood Reaver' && getClassUnlockedArray('Blood Reaver')[2]) {
-     if (gameState.player.hp < gameState.player.maxHp * 0.40) lifestealRatio += 0.30;
-     if (isCrit) lifestealRatio += 1.0;
-    }
-    if (lifestealRatio > 0) {
-     const healAmt = Math.max(1, Math.round(finalDmg * lifestealRatio));
-     healPlayerHp(healAmt, srcPos.x, srcPos.y, `🩸 LIFESTEAL +${healAmt} HP`);
-    }
-
-    if ((targetEnemy.hemorrhage || 0) > 0) {
-     const prevHp = targetEnemy.hp;
-     triggerHemorrhageOnEnemy(targetEnemy, targetSprite, 1, true);
-     if (prevHp > 0 && targetEnemy.hp === 0 && gameState.classType === 'Blood Reaver' && getClassUnlockedArray('Blood Reaver')[1]) {
-      healPlayerHp(12, srcPos.x, srcPos.y, '🩸 CRIMSON RESONANCE +12 HP!');
-     }
-    }
-   }
-
-   if (hitCount > 1 && h < hitCount - 1) {
-    await new Promise(r => setTimeout(r, 170 * gameState.speedMultiplier));
-   }
-  }
- } else if (cardDef.type === 'DEFEND') {
-  applyDefenseCard(cardDef, srcPos, tgtPos, echoScale, isEchoCast);
-
-  if (cardDef.id === 'scrap_recycler') {
-   gainParts(1, srcPos.x, srcPos.y);
-  } else if (cardDef.id === 'unbreakable_phalanx') {
-   gameState.reflectDamageThisTurn = (gameState.reflectDamageThisTurn || 0) + 8;
-   spawnFloatingText(srcPos.x, srcPos.y - 38, '🛡️ THORNS: REFLECT 8 DMG!', '#38bdf8');
-  } else if (cardDef.id === 'protection_racket') {
-   const crewBonus = (gameState.enforcers ? gameState.enforcers.length * 5 : 0);
-   const payout = Math.round((10 + crewBonus) * echoScale);
-   gainCash(payout, srcPos.x, srcPos.y, `🎩 PROTECTION RACKET +$${payout} CASH!`);
-  } else if (cardDef.id === 'money_laundering') {
-   gainCash(Math.round(15 * echoScale), srcPos.x, srcPos.y, undefined, true);
-  } else if (cardDef.id === 'velvet_kevlar') {
-   gameState.reflectDamageThisTurn = (gameState.reflectDamageThisTurn || 0) + 6;
-   spawnFloatingText(srcPos.x, srcPos.y - 38, 'REFLECT 6 DMG ACTIVE!', '#eab308');
-  } else if (cardDef.id === 'armored_limousine') {
-   gameState.juggernautStanceActive = true;
-   hireOrReinforceEnforcer(srcPos.x, srcPos.y);
-  }
- } else if (cardDef.type === 'HEAL') {
-  const healGain = Math.max(1, Math.round((cardDef.value || 10) * echoScale));
-  healPlayerHp(healGain, srcPos.x, srcPos.y);
-  playCardVFX(cardDef.id, srcPos, tgtPos);
-
-  if (cardDef.id === 'bootleg_tonic') {
-   addPlayerShield(6, srcPos.x, srcPos.y);
-   spawnFloatingText(srcPos.x, srcPos.y - 44, '🥃 BOOTLEG TONIC: +6 SHIELD!', '#eab308');
-  }
- }
-
- if (triggerTomeEchoAfter) {
-  spawnFloatingText(srcPos.x, srcPos.y - 48, '🔮 SPELLWEAVER TOME ECHO!', '#c084fc');
-  await new Promise(r => setTimeout(r, 200 * gameState.speedMultiplier));
-  await resolveSingleCardAction(cardObj, slotIndex, true);
- }
-}
-
-async function fireAllArtificerTurrets(damageMult = 1.0) {
- if (!gameState.turrets || gameState.turrets.length === 0) return;
- const px = playerSprite ? playerSprite.x : 200;
- const py = playerSprite ? playerSprite.y : 138;
- const hasCritTurrets = gameState.classType === 'Artificer' && getClassUnlockedArray('Artificer')[1];
-
- for (let t = 0; t < gameState.turrets.length; t++) {
-  const construct = gameState.turrets[t];
-  const spec = (typeof CONSTRUCT_CATALOG !== 'undefined' && CONSTRUCT_CATALOG[construct.type])
-   ? CONSTRUCT_CATALOG[construct.type]
-   : { type: 'auto_turret', name: 'Auto-Turret Drone', atk: 6, burn: 2, shield: 0 };
-
-  const droneSprite = (turretGroup && turretGroup.children[t]) ? turretGroup.children[t] : null;
-  const sx = droneSprite ? droneSprite.x : px + 44;
-  const sy = droneSprite ? droneSprite.y : py - 24 + t * 24;
-
-  // Defensive Shield Pulse (Aegis Barrier / Goliath Mech)
-  if (spec.shield && spec.shield > 0) {
-   const shGain = Math.max(1, Math.round(spec.shield * damageMult));
-   addPlayerShield(shGain, sx, sy);
-   spawnShockwave(sx, sy, 48, 0x38bdf8, 3, 18);
-   spawnFloatingText(sx, sy - 24, `${spec.name.toUpperCase()}: +${shGain} SHIELD`, '#38bdf8');
-  }
-
-  // Scrap Generation (Arc Tesla Coil)
-  if (spec.partsGain && spec.partsGain > 0) {
-   gainParts(spec.partsGain, sx, sy, `${spec.name.toUpperCase()}: +${spec.partsGain} PART!`);
-  }
-
-  const activeEnemies = gameState.enemies.filter(e => e.hp > 0);
-  if (activeEnemies.length === 0) break;
-
-  if (spec.atk && spec.atk > 0) {
-   const isCrit = hasCritTurrets && Math.random() < getEffectiveCritChance();
-   const dmg = Math.round(spec.atk * damageMult * (isCrit ? 2.0 : 1.0));
-
-   if (spec.aoe) {
-    // Inferno Flamethrower AoE volley
-    gameState.enemies.forEach((en, idx) => {
-     if (en.hp > 0) {
-      en.hp = Math.max(0, en.hp - dmg);
-      if (spec.burn) en.burn = (en.burn || 0) + spec.burn;
-      const sp = enemySprites[idx];
-      const tx = sp ? sp.x : 750;
-      const ty = sp ? sp.y : 138;
-      spawnParticles(tx, ty, 12, { colors: [0xf97316, 0xef4444, 0xfef08a], speed: 3.8, life: 20 });
-      spawnFloatingText(tx, ty - 22, `🔥 -${dmg}${spec.burn ? ` (+${spec.burn} BURN)` : ''}`, '#f97316');
-     }
-    });
-   } else {
-    const targetEnemy = activeEnemies[0];
-    const targetIdx = gameState.enemies.indexOf(targetEnemy);
-    const targetSprite = enemySprites[targetIdx];
-    const tx = targetSprite ? targetSprite.x : 750;
-    const ty = targetSprite ? targetSprite.y : 138;
-
-    targetEnemy.hp = Math.max(0, targetEnemy.hp - dmg);
-    if (spec.burn) targetEnemy.burn = (targetEnemy.burn || 0) + spec.burn;
-
-    const beamColor = construct.type === 'rail_turret' ? 0x38bdf8 : (construct.type === 'tesla_coil' ? 0xc084fc : 0xf59e0b);
-    spawnLightningBolt(sx, sy, tx, ty, beamColor, 0xfef08a);
-    spawnParticles(tx, ty, 10, { colors: [beamColor, 0xf97316, 0xfef08a], speed: 3.6, life: 18, shape: 'shard' });
-    const burnTag = spec.burn ? ` (+${spec.burn} BURN)` : '';
-    spawnFloatingText(tx, ty - 22, `${spec.name.toUpperCase()}: -${dmg} ${isCrit ? 'CRIT ' : ''}${burnTag}`, '#f59e0b');
-
-    // Arc Tesla Coil Chain Bounce
-    if (spec.chainDmg && spec.chainDmg > 0) {
-     const remainingAfter = gameState.enemies.filter(e => e.hp > 0);
-     if (remainingAfter.length > 0) {
-      const chainTarget = remainingAfter.length > 1 ? remainingAfter[1] : remainingAfter[0];
-      const cIdx = gameState.enemies.indexOf(chainTarget);
-      const cSprite = enemySprites[cIdx];
-      const cx = cSprite ? cSprite.x : tx;
-      const cy = cSprite ? cSprite.y : ty;
-      const cDmg = Math.max(1, Math.round(spec.chainDmg * damageMult));
-      chainTarget.hp = Math.max(0, chainTarget.hp - cDmg);
-      spawnLightningBolt(tx, ty, cx, cy, 0x38bdf8, 0xc084fc);
-      spawnFloatingText(cx, cy - 38, `⚡ ARC CHAIN -${cDmg}`, '#38bdf8');
-     }
-    }
-   }
-  }
-
-  renderUI();
-  await new Promise(r => setTimeout(r, 210 * gameState.speedMultiplier));
- }
-}
-
-async function fireAllMobEnforcers(damageMult = 1.0) {
- if (!gameState.enforcers || gameState.enforcers.length === 0) return;
- const px = playerSprite ? playerSprite.x : 200;
- const py = playerSprite ? playerSprite.y : 138;
- const hasMadeMen = gameState.classType === 'Mob Boss' && getClassUnlockedArray('Mob Boss')[1];
-
- for (let e = 0; e < gameState.enforcers.length; e++) {
-  const activeEnemies = gameState.enemies.filter(en => en.hp > 0);
-  if (activeEnemies.length === 0) break;
-  const targetEnemy = activeEnemies[0];
-  const targetIdx = gameState.enemies.indexOf(targetEnemy);
-  const targetSprite = enemySprites[targetIdx];
-
-  const enfSprite = (enforcerGroup && enforcerGroup.children[e]) ? enforcerGroup.children[e] : null;
-  const sx = enfSprite ? enfSprite.x : px + 52;
-  const sy = enfSprite ? enfSprite.y : py - 20 + e * 24;
-  const tx = targetSprite ? targetSprite.x : 750;
-  const ty = targetSprite ? targetSprite.y : 138;
-
-  const madeMenBonus = hasMadeMen ? gameState.enforcers.length * 3 : 0;
-  const dmg = Math.round((9 + madeMenBonus) * damageMult);
-  targetEnemy.hp = Math.max(0, targetEnemy.hp - dmg);
-
-  spawnGunfireVolleyVFX(sx, sy, tx, ty, 3);
-  spawnFloatingText(tx, ty - 24, `🎩 ENFORCER #${e + 1}: -${dmg} HP`, '#eab308');
-
-  if (targetEnemy.hp === 0 && targetEnemy.hasBountyLock) {
-   targetEnemy.hasBountyLock = false;
-   gainCash(25, tx, ty, '💰 HIT CONTRACT PAID +$25 CASH!', true);
-   gainNotoriety(5, tx, ty);
-  }
-
-  renderUI();
-  await new Promise(r => setTimeout(r, 220 * gameState.speedMultiplier));
- }
-}
-
-window.executeSequence = async function() {
- if (gameState.isExecuting) return;
- gameState.isExecuting = true;
-
- const timeTier = gameState.passives.TIME_WARP || 0;
-
- for (let i = 0; i < gameState.sequence.length; i++) {
-  const cardObj = gameState.sequence[i];
-  if (!cardObj) continue;
-
-  const cardDef = CARD_DATABASE[cardObj.id];
-  if (i === 0) {
-   gameState.lastSlot1CardId = cardDef.id;
-  }
-  const slotEl = document.getElementById(`seq-slot-${i}`);
-  if (slotEl) slotEl.classList.add('active-executing');
-
-  await resolveSingleCardAction(cardObj, i, false);
-
-  // Chronomancer Base Mechanic: Paradox Echo (cards unvaulted this turn trigger a 50% Echo!)
-  if (cardObj.wasUnvaultedThisTurn && gameState.enemies.some(e => e.hp > 0)) {
-   const px = playerSprite ? playerSprite.x : 200;
-   const py = playerSprite ? playerSprite.y : 138;
-   spawnShockwave(px, py, 58, 0x2dd4bf, 3, 20);
-   spawnFloatingText(px, py - 42, '⏳ PARADOX ECHO (50%)!', '#2dd4bf');
-   await new Promise(r => setTimeout(r, 210 * gameState.speedMultiplier));
-   await resolveSingleCardAction(cardObj, i, true);
-  }
-
-  gameState.discardPile.push(cardObj.id);
-  gameState.sequence[i] = null;
-  renderUI();
-
-  let stepDelay = 360;
-  if (i === 0 && timeTier >= 1) stepDelay = 180;
-  await new Promise(r => setTimeout(r, stepDelay * gameState.speedMultiplier));
- }
-
- // Fire Artificer Constructs at end of sequence (+ bonus volleys from Overclock Blueprint)
- if (gameState.turrets && gameState.turrets.length > 0 && gameState.enemies.some(e => e.hp > 0)) {
-  const totalVolleys = 1 + (gameState.turretBonusVolleysThisTurn || 0);
-  gameState.turretBonusVolleysThisTurn = 0;
-  for (let v = 0; v < totalVolleys; v++) {
-   if (!gameState.enemies.some(e => e.hp > 0)) break;
-   await fireAllArtificerTurrets(1.0);
-  }
- }
-
- // Fire Mob Boss Hired Enforcers at end of sequence
- if (gameState.enforcers && gameState.enforcers.length > 0 && gameState.enemies.some(e => e.hp > 0)) {
-  await fireAllMobEnforcers(1.0);
- }
-
- if (!checkPostActionVictoryOrDefeat()) {
-  await executeEnemyTurns();
-  endPlayerTurnCleanup();
- }
-};
-
-function checkPostActionVictoryOrDefeat() {
- const remainingEnemies = gameState.enemies.filter(e => e.hp > 0);
- if (remainingEnemies.length === 0) {
-  const killedCount = gameState.enemies.length;
-  gameState.masteryProgress.totalEnemiesKilled = (gameState.masteryProgress.totalEnemiesKilled || 0) + killedCount;
-  saveMasteryProgress();
-
+  gameState.isRestTurn = false;
+  gameState.nextTurnRestBonus = false;
+  gameState.nextTurnBonusEnergy = 0;
+  gameState.nextTurnBonusMana = 0;
+  gameState.manaSpentThisTurn = 0;
+  gameState.cardsPlayedThisTurn = 0;
+  gameState.tomesPlayedThisBattle = 0;
+  gameState.playedCardsHistory = [];
+  gameState.battleTurnCount = 1;
+  gameState.warriorNoHpLossTurns = 0;
+  gameState.tookHpDamageThisTurn = false;
+  gameState.shieldDecayLocked = false;
+  gameState.prismaticActive = false;
+  gameState.spellweaverEchoActive = false;
+  gameState.miragePoisonRetaliate = 0;
+  gameState.thornsDmgThisTurn = 0;
+  gameState.guaranteedDodges = 0;
+  gameState.shadowCritPrimed = false;
+  gameState.tempCritBonus = 0;
+  gameState.nextAttackBonusDmg = 0;
+  gameState.nextAttackForceCrit = false;
+  gameState.nextAttackBleed = 0;
+  gameState.nextAttackLifesteal = 0;
+  gameState.enemyAtkDebuff = 0;
+  gameState.bountyTargetId = null;
+  gameState.reactiveArmorActive = false;
+  gameState.turrets = [];
+  gameState.mobEnforcers = [];
+  gameState.warriorRevived = false;
   gameState.isExecuting = false;
-  const goldReward = gameState.boardNode === 5 ? 65 : 25;
-  const cashBounty = gameState.boardNode === 5 ? 35 : 15;
-  const notorietyBounty = gameState.boardNode === 5 ? 10 : 5;
-  gameState.gold += goldReward;
-  gainCash(cashBounty);
-  gainNotoriety(notorietyBounty);
-  showToast(`Victory! +${goldReward}g Gold, +$${cashBounty} Cash & +${notorietyBounty} ★ Notoriety!`, 'var(--accent-green)');
+  gameState.combatOver = false;
+
+  const unlocked = getClassUnlockedArray(gameState.classType);
+
+  gameState.player.shield = 0;
+  if (gameState.classType === 'Warrior') {
+    gameState.player.shield = unlocked[0] ? 20 : 15; // T1: Heavy Iron (+5 Starting Shield)
+  }
+  if (gameState.classType === 'Chronomancer') {
+    gameState.player.shield = 5;
+    gameState.player.maxChronos = unlocked[3] ? 4 : 3;
+    gameState.player.chronos = 1;
+  }
+  if (gameState.classType === 'Artificer') {
+    gameState.player.shield = 10;
+    gameState.player.parts = 2;
+    if (unlocked[1]) {
+      deployArtificerConstruct('auto_turret', 10); // T2: Twin-Linked Chassis
+    }
+  }
+  if (gameState.classType === 'Mob Boss') {
+    gameState.player.shield = 10;
+    if (unlocked[1]) {
+      summonMobEnforcer(); // T2: Made Men
+    }
+  }
+
+  gameState.player.energy = gameState.player.maxEnergy;
+  if (gameState.classType === 'Rogue' && unlocked[1]) {
+    gameState.player.energy += 1; // T2: Assassin Mastery (+1 Energy)
+  }
+
+  if (gameState.classType === 'Mage') {
+    gameState.player.maxMana = unlocked[1] ? 7 : 5; // T2: Mana Overflow (+2 Max Mana)
+    gameState.player.mana = unlocked[1] ? 5 : 3;
+  } else {
+    gameState.player.mana = 0;
+  }
+
+  // Relic: Deflection
+  if (gameState.relics.DEFLECTION > 0) {
+    addPlayerShield(gameState.relics.DEFLECTION * 3);
+  }
+
+  // Relic: Chrono Hourglass Tier 3 (+1 permanent Sequence Slot on Turn 1)
+  if ((gameState.relics.CHRONO_HOURGLASS || 0) >= 3) {
+    gameState.sequence.push(null);
+  }
+
+  const actionCards = [];
+  const tomeCards = [];
+  gameState.deck.forEach((cid, idx) => {
+    const def = CARD_DATABASE[cid];
+    const instance = { uid: 'card_' + idx + '_' + Math.random().toString(36).substr(2, 5), id: cid, turnsInVault: 0 };
+    if (def && def.category === 'tome') tomeCards.push(instance);
+    else actionCards.push(instance);
+  });
+
+  gameState.drawPileAction = shuffleArray(actionCards);
+  gameState.drawPileTome = shuffleArray(tomeCards);
+
+  renderCombatUnits();
+  drawCardsForTurn(true);
+
+  // Rogue T2: Free Smoke Screen on Turn 1
+  if (gameState.classType === 'Rogue' && unlocked[1]) {
+    gameState.hand.push({
+      uid: 'card_rogue_t2_' + Math.random().toString(36).substr(2, 5),
+      id: 'smoke_screen',
+      turnsInVault: 0,
+      freeCostOverride: true
+    });
+  }
+
+  updateBattleUI();
+}
+
+function shuffleArray(arr) {
+  const copy = [...arr];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
+function drawSpecificCategory(category) {
+  const pile = category === 'tome' ? gameState.drawPileTome : gameState.drawPileAction;
+  if (pile.length === 0) {
+    const matchingIds = gameState.deck.filter(cid => {
+      const def = CARD_DATABASE[cid];
+      return def && (category === 'tome' ? def.category === 'tome' : def.category !== 'tome');
+    });
+    if (matchingIds.length === 0) return null;
+    const rebuilt = matchingIds.map((cid, i) => ({
+      uid: 'reshuf_' + i + '_' + Math.random().toString(36).substr(2, 5),
+      id: cid,
+      turnsInVault: 0
+    }));
+    if (category === 'tome') gameState.drawPileTome = shuffleArray(rebuilt);
+    else gameState.drawPileAction = shuffleArray(rebuilt);
+  }
+  const activePile = category === 'tome' ? gameState.drawPileTome : gameState.drawPileAction;
+  return activePile.pop() || null;
+}
+
+function drawCardsForTurn(isFirstTurn) {
+  let drawn = [];
+  if (isFirstTurn) {
+    for (let i = 0; i < 4; i++) {
+      const c = drawSpecificCategory('action');
+      if (c) drawn.push(c);
+    }
+    const t = drawSpecificCategory('tome');
+    if (t) drawn.push(t);
+    while (drawn.length < 5) {
+      const fallback = drawSpecificCategory('action') || drawSpecificCategory('tome');
+      if (!fallback) break;
+      drawn.push(fallback);
+    }
+  } else {
+    for (let i = 0; i < 4; i++) {
+      const wantTome = Math.random() < 0.20;
+      let c = drawSpecificCategory(wantTome ? 'tome' : 'action');
+      if (!c) c = drawSpecificCategory(wantTome ? 'action' : 'tome');
+      if (c) drawn.push(c);
+    }
+  }
+
+  drawn.forEach(c => {
+    if (c.id === 'vial_stash' && gameState.vault.length < gameState.maxVaultSlots) {
+      c.turnsInVault = 0;
+      gameState.vault.push(c);
+      showToast('Vial Stash auto-stashed into Stasis Vault!', 'info');
+    } else if (c.id === 'assembly_blueprint' && gameState.vault.length === 0 && gameState.maxVaultSlots > 0) {
+      c.turnsInVault = 0;
+      gameState.vault.push(c);
+      showToast('Assembly Blueprint primed in Stasis Vault!', 'info');
+    } else {
+      gameState.hand.push(c);
+    }
+  });
+}
+
+function drawSingleRandomCard() {
+  const wantTome = Math.random() < 0.25;
+  let c = drawSpecificCategory(wantTome ? 'tome' : 'action');
+  if (!c) c = drawSpecificCategory(wantTome ? 'action' : 'tome');
+  if (c) gameState.hand.push(c);
+}
+
+// --- STASIS VAULT & SCRAP MECHANICS ---
+function vaultCardFromHand(handIndex) {
+  if (gameState.isExecuting || gameState.combatOver) return;
+  if (gameState.vault.length >= gameState.maxVaultSlots) {
+    showToast(`Stasis Vault is full (${gameState.maxVaultSlots}/${gameState.maxVaultSlots})!`, 'warning');
+    return;
+  }
+  const cardObj = gameState.hand[handIndex];
+  if (!cardObj) return;
+  gameState.hand.splice(handIndex, 1);
+  cardObj.turnsInVault = 0;
+  gameState.vault.push(cardObj);
+  showToast(`Stored ${CARD_DATABASE[cardObj.id].name} in Stasis Vault`, 'info');
+  updateBattleUI();
+}
+
+function unvaultCardToHand(vaultIndex) {
+  if (gameState.isExecuting || gameState.combatOver) return;
+  const cardObj = gameState.vault[vaultIndex];
+  if (!cardObj) return;
+  gameState.vault.splice(vaultIndex, 1);
+  cardObj.wasUnvaultedThisTurn = true;
+  cardObj.unvaultedTurnsHeld = cardObj.turnsInVault || 0;
+  gameState.hand.push(cardObj);
+
+  if (cardObj.id === 'assembly_blueprint') {
+    if (deployArtificerConstruct('auto_turret', 10)) {
+      renderArtificerTurrets();
+      showToast('Assembly Blueprint Unvaulted: Auto-Turret Deployed!', 'success');
+    }
+  } else {
+    showToast(`Retrieved ${CARD_DATABASE[cardObj.id].name} (50% Paradox Echo primed!)`, 'info');
+  }
+  updateBattleUI();
+}
+
+function scrapCardFromHand(handIndex) {
+  if (gameState.isExecuting || gameState.combatOver) return;
+  const limit = getEffectiveScrapLimit();
+  if (gameState.scrappedThisTurn >= limit) {
+    showToast(`Scrap limit reached (${limit}/turn)!`, 'warning');
+    return;
+  }
+  const cardObj = gameState.hand[handIndex];
+  if (!cardObj) return;
+  const def = CARD_DATABASE[cardObj.id];
+
+  gameState.hand.splice(handIndex, 1);
+  gameState.scrappedThisTurn++;
+  gameState.totalScrappedThisBattle++;
+
+  let energyGain = 1 + gameState.nextScrapBonusEnergy;
+  gameState.nextScrapBonusEnergy = 0;
+
+  if (def.id === 'money_laundering') {
+    energyGain += 1;
+    gainSyndicateCash(25, playerContainer ? playerContainer.x : 180, playerContainer ? playerContainer.y - 30 : 100);
+    gainNotoriety(2);
+    showToast('Laundered Card: +$25 Cash, +2 ★ & +2 Energy!', 'success');
+  } else if (def.id === 'deja_vu') {
+    gainChronos(1);
+    drawSingleRandomCard();
+    showToast('Déjà Vu Scrapped: +1 Chronos, +1 Card & +1 Energy!', 'info');
+  } else if (def.id === 'bastion_scrap') {
+    addPlayerShield(12);
+    showToast('Bastion Scrapped: +12 Armor Shield & +1 Energy!', 'info');
+  } else if (def.id === 'reinforced_plating') {
+    gainScrapParts(2);
+    showToast('Plating Scrapped: +2 Scrap Parts & +1 Energy!', 'info');
+  } else if (def.id === 'scrap_salvage') {
+    gainScrapParts(3);
+    showToast('Scrap Salvage Dismantled: +3 Scrap Parts & +1 Energy!', 'success');
+  } else {
+    showToast(`Scrapped ${def.name} for +${energyGain} ⚡`, 'info');
+  }
+
+  gameState.player.energy += energyGain;
+
+  if (gameState.classType === 'Mob Boss') {
+    gainSyndicateCash(20, playerContainer ? playerContainer.x : 180, playerContainer ? playerContainer.y - 35 : 95);
+    gainNotoriety(2);
+    showToast('💼 Syndicate Chop-Shop: +$20 Cash & +2 ★ Notoriety!', 'success');
+  }
+
+  if (gameState.classType === 'Artificer') {
+    // T1: Master Salvager (+2 Parts on Scrap & 4 DMG Salvage Bolt)
+    gainScrapParts(2);
+    const target = getFirstLivingEnemy();
+    if (target) {
+      dealDamageToEnemy(target, 4, false, '#f59e0b');
+      spawnFloatingText('SALVAGE BOLT -4', target.container.x, target.container.y - 40, '#f59e0b');
+      checkPostActionVictoryOrDefeat();
+    }
+    if (getClassUnlockedArray('Artificer')[2] && gameState.totalScrappedThisBattle % 4 === 0) {
+      addPlayerShield(15);
+      gameState.enemies.forEach(e => {
+        if (e.hp > 0) dealDamageToEnemy(e, 20, false, '#38bdf8');
+      });
+      triggerShake(14, 10);
+      showToast('💥 SINGULARITY CORE MELTDOWN: 20 AoE DMG & +15 Shield!', 'success');
+      checkPostActionVictoryOrDefeat();
+    }
+  }
+
+  updateBattleUI();
+}
+
+// --- SEQUENCE PLACEMENT & UNDO ---
+function playCardToSequence(handIndex) {
+  if (gameState.isExecuting || gameState.combatOver) return;
+  const cardObj = gameState.hand[handIndex];
+  if (!cardObj) return;
+  const cardDef = CARD_DATABASE[cardObj.id];
+
+  const slotIdx = gameState.sequence.findIndex(s => s === null);
+  if (slotIdx === -1) {
+    showToast('Sequence slots are full! Execute or click a slot to undo.', 'warning');
+    return;
+  }
+
+  const effectiveCost = cardObj.freeCostOverride ? 0 : getEffectiveCardCost(cardDef, slotIdx);
+  const costType = cardDef.costType || 'energy';
+
+  if (costType === 'mana') {
+    if (gameState.player.mana < effectiveCost) {
+      showToast(`Not enough Mana! Need ${effectiveCost} 💧`, 'error');
+      return;
+    }
+    gameState.player.mana -= effectiveCost;
+    gameState.manaSpentThisTurn += effectiveCost;
+  } else if (costType === 'chronos') {
+    if ((gameState.player.chronos || 0) < effectiveCost) {
+      showToast(`Not enough Chronos! Need ${effectiveCost} ⏳`, 'error');
+      return;
+    }
+    gameState.player.chronos -= effectiveCost;
+  } else if (costType === 'hp') {
+    if (gameState.player.hp <= effectiveCost) {
+      showToast(`Not enough HP! Need >${effectiveCost} ❤️`, 'error');
+      return;
+    }
+    spendPlayerHp(effectiveCost);
+  } else if (costType === 'cash') {
+    if ((gameState.syndicateCash || 0) < effectiveCost) {
+      showToast(`Not enough Syndicate Cash! Need $${effectiveCost} 💵`, 'error');
+      return;
+    }
+    spendSyndicateCash(effectiveCost);
+  } else {
+    if (gameState.player.energy < effectiveCost) {
+      showToast(`Not enough Energy! Need ${effectiveCost} ⚡`, 'error');
+      return;
+    }
+    gameState.player.energy -= effectiveCost;
+  }
+
+  cardObj.paidCost = effectiveCost;
+  cardObj.paidCostType = costType;
+  gameState.hand.splice(handIndex, 1);
+
+  if (cardDef.id === 'chrono_slash' && slotIdx === 0) {
+    gainChronos(1);
+    showToast('Chrono Slash placed in Slot 1: +1 Chronos!', 'info');
+  }
+
+  // Chronomancer T2 Fix: Slot 1 stays queued so player can undo/reorder, and fires at 0ms on Execute Sequence!
+  gameState.sequence[slotIdx] = cardObj;
+  updateBattleUI();
+}
+
+function removeCardFromSequence(slotIdx) {
+  if (gameState.isExecuting || gameState.combatOver) return;
+  const cardObj = gameState.sequence[slotIdx];
+  if (!cardObj) return;
+
+  const costType = cardObj.paidCostType || 'energy';
+  const refund = cardObj.paidCost !== undefined ? cardObj.paidCost : CARD_DATABASE[cardObj.id].cost;
+
+  if (costType === 'mana') {
+    gameState.player.mana = Math.min(gameState.player.maxMana, gameState.player.mana + refund);
+    gameState.manaSpentThisTurn = Math.max(0, gameState.manaSpentThisTurn - refund);
+  } else if (costType === 'chronos') {
+    gainChronos(refund);
+  } else if (costType === 'hp') {
+    gameState.player.hp = Math.min(gameState.player.maxHp + getBloodReaverOverhealCap(), gameState.player.hp + refund);
+  } else if (costType === 'cash') {
+    gameState.syndicateCash += refund;
+  } else {
+    gameState.player.energy += refund;
+  }
+
+  gameState.sequence[slotIdx] = null;
+  gameState.hand.push(cardObj);
+  updateBattleUI();
+}
+
+// --- CLASS ABILITIES ---
+function useClassAbility() {
+  if (gameState.isExecuting || gameState.combatOver) return;
+
+  if (gameState.classType === 'Mage') {
+    if (gameState.player.mana < 2) { showToast('Need 2 Mana 💧!', 'error'); return; }
+    if (gameState.sequence.length >= 4) { showToast('Max 4 Sequence Slots active!', 'warning'); return; }
+    gameState.player.mana -= 2;
+    gameState.manaSpentThisTurn += 2;
+    gameState.player.energy += 1;
+    gameState.sequence.push(null);
+    spawnVFXParticles(playerContainer.x, playerContainer.y, 0xc084fc, 16, 4);
+    showToast('Mana Convert: +1 ⚡ & +1 Temp Sequence Slot!', 'success');
+  } else if (gameState.classType === 'Warrior') {
+    if (gameState.player.energy < 1) { showToast('Need 1 Energy ⚡!', 'error'); return; }
+    gameState.player.energy -= 1;
+    addPlayerShield(20);
+    spawnVFXParticles(playerContainer.x, playerContainer.y, 0x38bdf8, 16, 4);
+    showToast('Shield Wall: +20 Armor Shield!', 'success');
+  } else if (gameState.classType === 'Rogue') {
+    if (gameState.player.energy < 1) { showToast('Need 1 Energy ⚡!', 'error'); return; }
+    gameState.player.energy -= 1;
+    gameState.nextAttackBonusDmg += 8;
+    spawnVFXParticles(playerContainer.x, playerContainer.y, 0x4ade80, 14, 4);
+    showToast('Precise Poison: +8 DMG on next hit!', 'success');
+  } else if (gameState.classType === 'Chronomancer') {
+    if ((gameState.player.chronos || 0) < 2) { showToast('Need 2 Chronos ⏳!', 'error'); return; }
+    const slot0 = gameState.sequence[0];
+    if (!slot0) { showToast('Place a card in Slot 1 first to Temporal Loop it!', 'warning'); return; }
+    if (gameState.sequence.length >= 5) { showToast('Max Sequence Slots reached!', 'warning'); return; }
+    gameState.player.chronos -= 2;
+    const cloneCard = {
+      uid: 'echo_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+      id: slot0.id,
+      turnsInVault: 0,
+      isTemporalClone: true
+    };
+    gameState.sequence.push(cloneCard);
+    spawnVFXParticles(playerContainer.x, playerContainer.y, 0x2dd4bf, 18, 4.5);
+    showToast(`Temporal Loop: Cloned ${CARD_DATABASE[slot0.id].name} into Temp Echo Slot!`, 'success');
+  } else if (gameState.classType === 'Artificer') {
+    if (gameState.player.energy < 1 || (gameState.player.parts || 0) < 2) {
+      showToast('Need 1 ⚡ & 2 Scrap Parts ⚙️!', 'error');
+      return;
+    }
+    gameState.player.energy -= 1;
+    gameState.player.parts -= 2;
+    const maxBays = getMaxTurrets();
+    if (gameState.turrets.length < maxBays) {
+      deployArtificerConstruct('auto_turret', 10);
+      renderArtificerTurrets();
+      spawnVFXParticles(playerContainer.x + 50, playerContainer.y, 0xf59e0b, 16, 4);
+      showToast(`Deployed Auto-Turret Drone (${gameState.turrets.length}/${maxBays})!`, 'success');
+    } else {
+      fireAllArtificerTurrets(2.0);
+      showToast(`⚡ OVERCLOCK BARRAGE: All ${maxBays} Constructs fired at 2x DMG!`, 'success');
+      checkPostActionVictoryOrDefeat();
+    }
+  } else if (gameState.classType === 'Blood Reaver') {
+    if (gameState.player.hp <= 8) { showToast('Need >8 HP ❤️ for Crimson Pact!', 'error'); return; }
+    spendPlayerHp(8);
+    gameState.player.energy += 1;
+    gameState.nextAttackLifesteal = 0.50;
+    gameState.nextAttackBleed += 4;
+    spawnVFXParticles(playerContainer.x, playerContainer.y, 0xe11d48, 18, 4.5);
+    showToast('Crimson Pact: -8 HP → +1 ⚡, +50% Lifesteal & +4 Hemorrhage on next hit!', 'success');
+  } else if (gameState.classType === 'Mob Boss') {
+    if ((gameState.syndicateCash || 0) < 20) {
+      showToast('Need $20 Syndicate Cash 💵 for Put Out a Hit!', 'error');
+      return;
+    }
+    const target = getFirstLivingEnemy();
+    if (!target) return;
+    spendSyndicateCash(20);
+    gameState.bountyTargetId = target.id;
+    gameState.nextAttackBonusDmg = Math.max(gameState.nextAttackBonusDmg, 0);
+    const dmg = Math.round(12 * 1.5);
+    spawnGunfireTracer(playerContainer.x + 20, playerContainer.y, target.container.x, target.container.y, 0xef4444);
+    dealDamageToEnemy(target, dmg, false, '#ef4444');
+    spawnFloatingText('🎯 BOUNTY HIT!', target.container.x, target.container.y - 52, '#ef4444');
+    showToast(`🎯 PUT OUT A HIT on ${target.name}! +$25 Cash & +5 ★ on kill!`, 'success');
+    checkPostActionVictoryOrDefeat();
+  }
+  updateBattleUI();
+}
+
+// --- SEQUENCE EXECUTION & PARADOX ECHO ENGINE ---
+function executeSequence() {
+  if (gameState.isExecuting || gameState.combatOver) return;
+  const filledCount = gameState.sequence.filter(s => s !== null).length;
+
+  if (filledCount === 0) {
+    gameState.isRestTurn = true;
+    gameState.nextTurnRestBonus = true;
+    if (gameState.classType === 'Mage') {
+      gameState.nextTurnBonusMana += 1;
+      showToast('Rest & Charge: +1 Temp Slot & +1 Mana next turn!', 'info');
+    } else if (gameState.classType === 'Chronomancer' && getClassUnlockedArray('Chronomancer')[2]) {
+      showToast('Sovereign of Time: Rest grants +2 Temp Slots (5 total) & triggers Vault!', 'success');
+      if (gameState.vault.length > 0) {
+        const vaultedCopy = [...gameState.vault];
+        vaultedCopy.forEach(vCard => {
+          resolveSingleCardAction(vCard, 0, 1.0);
+        });
+      }
+    } else {
+      showToast('Rest & Charge: +1 Temp Sequence Slot next turn!', 'info');
+    }
+    endPlayerTurn();
+    return;
+  }
+
+  gameState.isRestTurn = false;
+  gameState.isExecuting = true;
+  updateBattleUI();
+
+  const chronoT2Instant = gameState.classType === 'Chronomancer' && getClassUnlockedArray('Chronomancer')[1];
+  const baseStepDelay = (gameState.relics.TIME_WARP || 0) > 0 ? 300 : 520;
+  let stepIdx = 0;
+
+  function runNextSlot() {
+    if (gameState.combatOver) {
+      gameState.isExecuting = false;
+      return;
+    }
+    if (stepIdx >= gameState.sequence.length) {
+      gameState.sequence = [null, null, null];
+      setTimeout(() => {
+        if (!gameState.combatOver) endPlayerTurn();
+      }, 320);
+      return;
+    }
+
+    const cardObj = gameState.sequence[stepIdx];
+    const currentSlot = stepIdx;
+    stepIdx++;
+
+    if (!cardObj) {
+      runNextSlot();
+      return;
+    }
+
+    // Chronomancer T2 Mastery: Accelerated Timeline (Slot 1 executes instantaneously at 0ms!)
+    const isInstantSlot1 = currentSlot === 0 && chronoT2Instant;
+    if (isInstantSlot1) {
+      spawnFloatingText('⚡ 0ms INSTANT CAST!', playerContainer.x, playerContainer.y - 58, '#2dd4bf');
+    }
+
+    resolveSingleCardAction(cardObj, currentSlot, 1.0);
+
+    // Record card history for Temporal Paradox (avoiding self-loop)
+    if (cardObj.id !== 'temporal_paradox') {
+      gameState.playedCardsHistory.push(cardObj.id);
+    }
+
+    // Mage T4 Mastery: Astral Omniscience (Every 3rd Tome echoes at 100% power & grants +1 temp slot)
+    const def = CARD_DATABASE[cardObj.id];
+    const isMageT4Omniscience =
+      gameState.classType === 'Mage' &&
+      getClassUnlockedArray('Mage')[3] &&
+      def &&
+      def.category === 'tome' &&
+      (gameState.tomesPlayedThisBattle % 3 === 0);
+
+    if (isMageT4Omniscience) {
+      setTimeout(() => {
+        if (!gameState.combatOver) {
+          spawnFloatingText('🌌 ASTRAL OMNISCIENCE ECHO!', playerContainer.x, playerContainer.y - 62, '#c084fc');
+          resolveSingleCardAction(cardObj, currentSlot, 1.0);
+          if (gameState.sequence.length < 5) {
+            gameState.sequence.push(null);
+          }
+          updateBattleUI();
+        }
+      }, 180);
+    }
+
+    // Spellweaver Prism 50% Tome Echo
+    if (def && def.category === 'tome' && gameState.spellweaverEchoActive && cardObj.id !== 'spellweaver_prism') {
+      gameState.spellweaverEchoActive = false;
+      setTimeout(() => {
+        if (!gameState.combatOver) {
+          spawnFloatingText('✨ SPELLWEAVER ECHO!', playerContainer.x, playerContainer.y - 55, '#c084fc');
+          resolveSingleCardAction(cardObj, currentSlot, 0.5);
+          updateBattleUI();
+        }
+      }, 220);
+    }
+
+    // Stasis Vault Paradox Echo (50% base, or 2x 100% triggers if Chronomancer T4 & held 2+ turns!)
+    if (cardObj.wasUnvaultedThisTurn) {
+      const isChronoT4 =
+        gameState.classType === 'Chronomancer' &&
+        getClassUnlockedArray('Chronomancer')[3] &&
+        (cardObj.unvaultedTurnsHeld || 0) >= 2;
+
+      setTimeout(() => {
+        if (!gameState.combatOver) {
+          if (isChronoT4) {
+            spawnFloatingText('⏳ LORD OF ETERNITY 2X ECHO!', playerContainer.x, playerContainer.y - 58, '#2dd4bf');
+            resolveSingleCardAction(cardObj, currentSlot, 1.0);
+            resolveSingleCardAction(cardObj, currentSlot, 1.0);
+          } else {
+            spawnFloatingText('⏳ PARADOX ECHO!', playerContainer.x, playerContainer.y - 55, '#2dd4bf');
+            resolveSingleCardAction(cardObj, currentSlot, 0.5);
+          }
+          updateBattleUI();
+        }
+      }, 240);
+    }
+
+    updateBattleUI();
+    if (checkPostActionVictoryOrDefeat()) {
+      gameState.isExecuting = false;
+      return;
+    }
+
+    const delay = isInstantSlot1 ? 0 : (cardObj.wasUnvaultedThisTurn || isMageT4Omniscience ? baseStepDelay + 240 : baseStepDelay);
+    if (delay === 0) {
+      runNextSlot();
+    } else {
+      setTimeout(runNextSlot, delay);
+    }
+  }
+
+  runNextSlot();
+}
+
+function resolveSingleCardAction(cardObj, slotIndex, echoScale = 1.0) {
+  const cardDef = CARD_DATABASE[cardObj.id];
+  if (!cardDef) return;
+  const isEchoCast = echoScale < 1.0;
+
+  if (!isEchoCast) {
+    gameState.cardsPlayedThisTurn++;
+    if (cardDef.category === 'tome') {
+      gameState.tomesPlayedThisBattle++;
+      // Relic: Aegis Overcharger (+4 Shield per tier whenever you play a Tome)
+      if ((gameState.relics.AEGIS_OVERCHARGER || 0) > 0) {
+        addPlayerShield(4 * gameState.relics.AEGIS_OVERCHARGER);
+      }
+    }
+  }
+
+  const targetEnemy = getFirstLivingEnemy();
+  playCardVFX(cardDef.id, targetEnemy);
+
+  // --- HANDLE TOME & SPECIAL UTILITY CARDS ---
+  if (cardDef.id === 'arcane_battery') {
+    gameState.nextTurnBonusEnergy += 1;
+    const actionIdx = gameState.drawPileAction.length - 1;
+    if (actionIdx >= 0) {
+      gameState.hand.push(gameState.drawPileAction.pop());
+    } else {
+      const c = drawSpecificCategory('action');
+      if (c) gameState.hand.push(c);
+    }
+    showToast('Arcane Battery: +1 ⚡ next turn & Tutored 1 Action!', 'info');
+  } else if (cardDef.id === 'overcharge_conduit') {
+    // Fixed v0.7.6 bug: overcharge_conduit is a TOME so resolve its damage & Slot 3 bonus here!
+    if (targetEnemy) {
+      const dmg = Math.max(1, Math.round(6 * echoScale));
+      dealDamageToEnemy(targetEnemy, dmg, false, '#c084fc');
+    }
+    if (slotIndex === 2) {
+      gameState.player.energy += 1;
+      gameState.player.mana = Math.min(gameState.player.maxMana, gameState.player.mana + 1);
+      showToast('Overcharge Conduit Slot 3 Bonus: +1 ⚡ & +1 💧!', 'success');
+    }
+  } else if (cardDef.id === 'chrono_echo') {
+    addPlayerShield(Math.max(1, Math.round(5 * echoScale)));
+    drawSingleRandomCard();
+    if (gameState.isRestTurn) gameState.nextTurnBonusMana += 1;
+  } else if (cardDef.id === 'prismatic_catalyst') {
+    gameState.prismaticActive = true;
+    showToast('Prismatic Catalyst: Attack Spells cost -1 ⚡ this turn!', 'info');
+  } else if (cardDef.id === 'spellweaver_prism') {
+    addPlayerShield(Math.max(1, Math.round(6 * echoScale)));
+    gameState.player.mana = Math.min(gameState.player.maxMana, gameState.player.mana + 2);
+    gameState.spellweaverEchoActive = true;
+    showToast('Spellweaver Prism: +6 Shield, +2 Mana & Next Tome Echoes!', 'success');
+  } else if (cardDef.id === 'astral_cataclysm') {
+    // Mage Signature Expansion: Deal 24 AoE Arcane DMG; refund 1 Mana per enemy hit
+    let baseDmg = Math.round(24 * echoScale);
+    if (gameState.classType === 'Mage' && getClassUnlockedArray('Mage')[2]) {
+      baseDmg += 15; // T3 Archmage Supremacy (+15 DMG on Mage Ultimates)
+    }
+    let enemiesHit = 0;
+    gameState.enemies.forEach(e => {
+      if (e.hp > 0) {
+        dealDamageToEnemy(e, baseDmg, false, '#c084fc');
+        enemiesHit++;
+      }
+    });
+    if (enemiesHit > 0) {
+      gameState.player.mana = Math.min(gameState.player.maxMana, gameState.player.mana + enemiesHit);
+      showToast(`Astral Cataclysm hit ${enemiesHit} enemies & refunded +${enemiesHit} 💧!`, 'success');
+    }
+  } else if (cardDef.id === 'juggernaut_stance') {
+    addPlayerShield(Math.max(1, Math.round(10 * echoScale)));
+    gameState.shieldDecayLocked = true;
+    showToast('Juggernaut Stance: Shield Decay Locked for 1 turn!', 'info');
+  } else if (cardDef.id === 'shadow_step') {
+    addPlayerShield(Math.max(1, Math.round(15 * echoScale)));
+    gameState.guaranteedDodges++;
+    gameState.shadowCritPrimed = true;
+    showToast('Shadow Step: +15 Shield, Guaranteed Dodge & 100% Crit Primed!', 'info');
+  } else if (cardDef.id === 'smokebomb_barrage') {
+    addPlayerShield(Math.max(1, Math.round(8 * echoScale)));
+    gameState.guaranteedDodges++;
+    gameState.enemies.forEach(e => {
+      if (e.hp > 0) {
+        e.poison = (e.poison || 0) + Math.max(1, Math.round(2 * echoScale));
+        spawnPoisonBubbles(e.container.x, e.container.y);
+      }
+    });
+  } else if (cardDef.id === 'stasis_surge') {
+    if (targetEnemy) {
+      dealDamageToEnemy(targetEnemy, Math.max(1, Math.round(8 * echoScale)), false, '#2dd4bf');
+    }
+    gainChronos(1);
+    const c = drawSpecificCategory('action');
+    if (c) gameState.hand.push(c);
+  } else if (cardDef.id === 'chrono_rewind') {
+    addPlayerShield(Math.max(1, Math.round(8 * echoScale)));
+    gameState.player.energy += 1;
+    if (gameState.sequence[0] && gameState.sequence[0].uid !== cardObj.uid) {
+      const copy = { uid: 'rew_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4), id: gameState.sequence[0].id, turnsInVault: 0 };
+      gameState.hand.push(copy);
+      showToast(`Chrono Rewind: Copied ${CARD_DATABASE[copy.id].name} to hand!`, 'success');
+    }
+  } else if (cardDef.id === 'temporal_paradox') {
+    // Chronomancer Signature Expansion: Replay last 2 played cards at 75% effectiveness & +1 Energy
+    gameState.player.energy += 1;
+    const recent = gameState.playedCardsHistory.slice(-2);
+    if (recent.length > 0) {
+      showToast(`Temporal Paradox: Replaying ${recent.length} card(s) at 75% power & +1 ⚡!`, 'success');
+      recent.forEach(prevId => {
+        resolveSingleCardAction({ uid: 'paradox_' + Math.random().toString(36).slice(2, 6), id: prevId }, slotIndex, 0.75);
+      });
+    } else {
+      showToast('Temporal Paradox: +1 ⚡ (No prior cards to replay yet)!', 'info');
+    }
+  } else if (cardDef.id === 'overclock_blueprint') {
+    gainScrapParts(1);
+    const c = drawSpecificCategory('action');
+    if (c) gameState.hand.push(c);
+    fireAllArtificerTurrets(1.0);
+  } else if (cardDef.id === 'overload_capacitor') {
+    if (gameState.turrets.length > 0) {
+      fireAllArtificerTurrets(1.0);
+      showToast('⚡ Overload Capacitor: All Constructs fired an immediate bonus volley!', 'success');
+    } else {
+      gainScrapParts(2);
+      showToast('Overload Capacitor: Bay empty → +2 Scrap Parts!', 'info');
+    }
+  } else if (cardDef.id === 'reactive_armor') {
+    addPlayerShield(Math.max(1, Math.round(8 * echoScale)));
+    gameState.reactiveArmorActive = true;
+    showToast('Reactive Armor Active: Construct hits grant +1 Part & 5 counter DMG!', 'info');
+  } else if (cardDef.id === 'assembly_blueprint') {
+    if (deployArtificerConstruct('auto_turret', 10)) {
+      renderArtificerTurrets();
+      showToast('Deployed 10-HP Auto-Turret Drone!', 'success');
+    }
+  } else if (cardDef.constructType && CONSTRUCT_CATALOG[cardDef.constructType]) {
+    // All 6 Construct Schematic Tome Cards!
+    const spec = CONSTRUCT_CATALOG[cardDef.constructType];
+    if (deployArtificerConstruct(spec.type, spec.defaultHp)) {
+      renderArtificerTurrets();
+      spawnVFXParticles(playerContainer.x + 50, playerContainer.y, spec.colorHex, 18, 4.5);
+      showToast(`Deployed ${spec.name} (${spec.defaultHp} HP)!`, 'success');
+    }
+  } else if (cardDef.id === 'tesla_arc_pylon') {
+    // Artificer Signature Expansion: Deploy 12-HP Auto-Turret & immediate 8 AoE chain-lightning volley
+    if (deployArtificerConstruct('auto_turret', 12)) {
+      renderArtificerTurrets();
+    }
+    const aoeDmg = Math.max(1, Math.round(8 * echoScale));
+    gameState.enemies.forEach(e => {
+      if (e.hp > 0) {
+        spawnChainLightningVFX(playerContainer.x + 40, playerContainer.y - 10, e.container.x, e.container.y, 0x38bdf8);
+        dealDamageToEnemy(e, aoeDmg, false, '#38bdf8');
+      }
+    });
+    showToast('Tesla Arc Pylon: 12-HP Turret Deployed + 8 AoE Chain Lightning!', 'success');
+  } else if (cardDef.id === 'blood_suck') {
+    if (targetEnemy) {
+      const stacks = targetEnemy.hemorrhage || 0;
+      if (stacks > 0) {
+        const dmg = Math.max(1, Math.round(stacks * 2 * echoScale));
+        const heal = Math.max(1, Math.round(stacks * 4 * echoScale));
+        targetEnemy.hemorrhage = 0;
+        dealDamageToEnemy(targetEnemy, dmg, false, '#e11d48');
+        healPlayer(heal);
+        showToast(`Blood Suck: Consumed ${stacks} Bleed → ${dmg} DMG & +${heal} HP!`, 'success');
+      } else {
+        showToast('Target has no Hemorrhage stacks!', 'warning');
+      }
+    }
+  } else if (cardDef.id === 'sanguine_ward') {
+    addPlayerShield(Math.max(1, Math.round(10 * echoScale)));
+    gameState.enemies.forEach(e => {
+      if (e.hp > 0) {
+        e.hemorrhage = (e.hemorrhage || 0) + Math.max(1, Math.round(2 * echoScale));
+      }
+    });
+  } else if (cardDef.id === 'syndicate_ledger') {
+    const cashGain = Math.max(1, Math.round(15 * echoScale));
+    gainSyndicateCash(cashGain, playerContainer.x, playerContainer.y - 30);
+    gainNotoriety(2);
+    const c = drawSpecificCategory('action');
+    if (c) gameState.hand.push(c);
+    gameState.mobEnforcers.forEach(m => { m.hp = Math.min(m.maxHp, m.hp + 5); });
+    renderMobEnforcers();
+  } else if (cardDef.id === 'hired_goon_contract') {
+    if (summonMobEnforcer()) {
+      renderMobEnforcers();
+      showToast('Hired a 12-HP Frontline Enforcer!', 'success');
+    }
+    addPlayerShield(Math.max(1, Math.round(8 * echoScale)));
+  } else if (cardDef.id === 'syndicate_hit_squad') {
+    // Mob Boss Signature Expansion: Summon 2 Hired Enforcers (12 HP each) & immediate coordinated volley
+    let hired = 0;
+    if (summonMobEnforcer(12)) hired++;
+    if (summonMobEnforcer(12)) hired++;
+    renderMobEnforcers();
+    fireAllMobEnforcers(echoScale);
+    showToast(`Syndicate Hit Squad: ${hired} Enforcer(s) deployed & coordinated volley fired!`, 'success');
+  } else if (cardDef.id === 'offers_you_cant_refuse') {
+    gameState.enemyAtkDebuff = 0.50;
+    addPlayerShield(Math.max(1, Math.round(10 * echoScale)));
+    gainNotoriety(3);
+    drawSingleRandomCard();
+    showToast("Offer You Can't Refuse: Enemy ATK -50% this turn!", 'success');
+  } else if (cardDef.id === 'family_consigliere') {
+    addPlayerShield(Math.max(1, Math.round(10 * echoScale)));
+    gainNotoriety(2);
+    gameState.blackMarketRestockDiscount += 5;
+    if (gameState.sequence.length < 5) {
+      gameState.sequence.push(null);
+    }
+    showToast('Family Consigliere: +10 Shield, +1 Temp Slot & -$5 Black Market Restock!', 'success');
+  } else if (cardDef.id === 'black_market_voucher') {
+    gainSyndicateCash(Math.max(1, Math.round(18 * echoScale)), playerContainer.x, playerContainer.y - 30);
+    gainNotoriety(3);
+    const c = drawSpecificCategory('action');
+    if (c) gameState.hand.push(c);
+  } else if (cardDef.id === 'mercenary_contract') {
+    if (summonMobEnforcer()) renderMobEnforcers();
+    gameState.player.energy += 1;
+  } else if (cardDef.id === 'adrenaline_syringe') {
+    gameState.player.energy += 2;
+    const c = drawSpecificCategory('action');
+    if (c) gameState.hand.push(c);
+    showToast('Adrenaline Syringe: +2 ⚡ & +1 Action Card!', 'success');
+  } else if (cardDef.id === 'astral_compass') {
+    // Neutral Signature Expansion: Draw 2 cards, +1 Scrap this turn, +10g / +$10 Cash
+    drawSingleRandomCard();
+    drawSingleRandomCard();
+    gameState.bonusScrapLimitThisTurn += 1;
+    gameState.gold += 10;
+    if (gameState.classType === 'Mob Boss') {
+      gainSyndicateCash(10, playerContainer.x, playerContainer.y - 30);
+      showToast('Astral Compass: +2 Cards, +1 Scrap Limit, +10g & +$10 Cash!', 'success');
+    } else {
+      showToast('Astral Compass: +2 Cards, +1 Scrap Limit this turn & +10g!', 'success');
+    }
+  } else if (cardDef.id === 'loaded_dice') {
+    gameState.player.energy += 1;
+    gameState.tempCritBonus = Math.min(1.0, (gameState.tempCritBonus || 0) + 0.15);
+    drawSingleRandomCard();
+    showToast('Loaded Dice: +1 ⚡, +15% Crit & +1 Card!', 'success');
+  } else if (cardDef.id === 'hollow_point_mag') {
+    gameState.nextAttackBonusDmg += Math.max(1, Math.round(12 * echoScale));
+    gameState.nextAttackForceCrit = true;
+    gameState.nextAttackBleed += 3;
+    showToast('Hollow-Point Mag Loaded: Next Attack +12 DMG, 100% Crit & +3 Bleed!', 'success');
+  } else if (cardDef.id === 'syndicate_bribe') {
+    gameState.player.energy += 2;
+    drawSingleRandomCard();
+    if (gameState.sequence.length < 5) gameState.sequence.push(null);
+    showToast('Syndicate Bribe: +2 ⚡, +1 Temp Slot & +1 Card!', 'success');
+  } else if (cardDef.id === 'godfathers_decree') {
+    const aoeDmg = Math.max(1, Math.round(20 * echoScale));
+    gameState.enemies.forEach(e => {
+      if (e.hp > 0) dealDamageToEnemy(e, aoeDmg, false, '#eab308');
+    });
+    addPlayerShield(Math.max(1, Math.round(20 * echoScale)));
+    if (!isEchoCast) {
+      gameState.player.maxEnergy += 1;
+      gameState.player.energy += 1;
+    }
+    showToast("👑 GODFATHER'S DECREE: 20 AoE DMG, +20 Shield & +1 Max Energy!", 'success');
+  } else if (cardDef.id === 'vault_recycle') {
+    if (gameState.vault.length > 0) {
+      const vCard = gameState.vault.shift();
+      vCard.wasUnvaultedThisTurn = true;
+      vCard.unvaultedTurnsHeld = vCard.turnsInVault || 0;
+      if (gameState.sequence[0] === null) {
+        gameState.sequence[0] = vCard;
+      } else {
+        gameState.hand.push(vCard);
+      }
+      showToast(`Vault Recycled ${CARD_DATABASE[vCard.id].name}!`, 'info');
+    }
+    drawSingleRandomCard();
+  } else if (cardDef.type === 'HEAL') {
+    let healAmt = Math.max(1, Math.round(cardDef.value * echoScale));
+    healPlayer(healAmt);
+    if (cardDef.id === 'bootleg_tonic') {
+      addPlayerShield(Math.max(1, Math.round(6 * echoScale)));
+      // Fixed v0.7.6 bug: cleanse 2 Poison/Bleed stacks or run debuffs
+      if (gameState.runDebuffs.length > 0) {
+        gameState.runDebuffs.splice(0, 2);
+      }
+      showToast('Bootleg Tonic: +14 HP, +6 Shield & Cleansed Debuffs!', 'success');
+    }
+  } else if (cardDef.type === 'DEFEND') {
+    let shieldAmt = cardDef.value;
+    if (cardDef.id === 'stasis_bubble') {
+      shieldAmt += (gameState.player.chronos || 0) * 4;
+    }
+    shieldAmt = Math.max(1, Math.round(shieldAmt * echoScale));
+    addPlayerShield(shieldAmt);
+
+    if (cardDef.id === 'fortify') {
+      const doubled = Math.min(60, gameState.player.shield * 2);
+      const diff = doubled - gameState.player.shield;
+      if (diff > 0) addPlayerShield(diff);
+    }
+    if (cardDef.id === 'unbreakable_phalanx') {
+      gameState.thornsDmgThisTurn += 8;
+    }
+    if (cardDef.id === 'velvet_kevlar') {
+      gameState.thornsDmgThisTurn += 6;
+    }
+    if (cardDef.id === 'coagulate' && gameState.player.hp > gameState.player.maxHp) {
+      gameState.nextTurnBonusEnergy += 1;
+    }
+    if (cardDef.id === 'protection_racket') {
+      const cash = Math.max(1, Math.round((10 + gameState.mobEnforcers.length * 5) * echoScale));
+      gainSyndicateCash(cash, playerContainer.x, playerContainer.y - 30);
+    }
+    if (cardDef.id === 'money_laundering') {
+      gainSyndicateCash(Math.max(1, Math.round(15 * echoScale)), playerContainer.x, playerContainer.y - 30);
+    }
+    if (cardDef.id === 'armored_limousine') {
+      gameState.shieldDecayLocked = true;
+      if (summonMobEnforcer()) renderMobEnforcers();
+    }
+    if (cardDef.id === 'shadow_step_mirage') {
+      // Rogue Signature Expansion: +10 Shield, +1 Guaranteed Dodge & apply 3 Poison to attacker
+      gameState.miragePoisonRetaliate += Math.max(1, Math.round(3 * echoScale));
+      showToast('Shadow Step Mirage: +10 Shield, Guaranteed Dodge & 3 Poison Counter!', 'success');
+    }
+    if (cardDef.guaranteedDodge) {
+      gameState.guaranteedDodges++;
+      if (gameState.classType === 'Rogue') gameState.shadowCritPrimed = true;
+    }
+  } else if (cardDef.type === 'ATTACK' && targetEnemy) {
+    if (cardDef.id === 'catalytic_rupture') {
+      const pStacks = targetEnemy.poison || 0;
+      if (pStacks > 0) {
+        const detonateDmg = Math.max(1, Math.round(pStacks * 1.5 * echoScale));
+        targetEnemy.poison = 0;
+        dealDamageToEnemy(targetEnemy, detonateDmg, false, '#22c55e');
+        spawnFloatingText(`RUPTURE -${detonateDmg}!`, targetEnemy.container.x, targetEnemy.container.y - 45, '#4ade80');
+      } else {
+        showToast('Target has no Poison stacks to rupture!', 'warning');
+      }
+      return;
+    }
+
+    if (cardDef.id === 'shadow_prep') {
+      gameState.nextTurnRestBonus = true;
+      gameState.enemies.forEach(e => {
+        if (e.hp > 0) {
+          e.poison = (e.poison || 0) + Math.max(1, Math.round(3 * echoScale));
+          spawnPoisonBubbles(e.container.x, e.container.y);
+        }
+      });
+      return;
+    }
+
+    const hits = cardDef.hits || (cardDef.id === 'rift_strike' && cardObj.wasUnvaultedThisTurn ? 2 : 1);
+
+    let baseDmg = cardDef.value;
+    if (cardDef.id === 'shield_slam') {
+      baseDmg = gameState.player.shield;
+      gameState.player.shield = 0;
+      setEntityShieldVisual(false);
+    } else if (cardDef.id === 'titans_cleave') {
+      // Warrior Signature Expansion: 14 AoE DMG + 50% of current Shield as bonus DMG
+      baseDmg = 14 + Math.floor((gameState.player.shield || 0) * 0.5);
+    } else if (cardDef.id === 'volatile_reserve') {
+      baseDmg += (cardObj.turnsInVault || 0) * 6;
+    } else if (cardDef.id === 'mana_overload') {
+      baseDmg += (gameState.manaSpentThisTurn || 0) * 6;
+    } else if (cardDef.id === 'patience_fury' && gameState.isRestTurn) {
+      baseDmg = 24;
+      addPlayerShield(8);
+    } else if (cardDef.id === 'cleaving_execution' && gameState.player.shield >= 15) {
+      baseDmg += 10;
+    } else if (cardDef.id === 'entropy_bolt') {
+      const emptySlots = gameState.sequence.filter(s => s === null).length;
+      baseDmg += emptySlots * 4;
+    } else if (cardDef.id === 'capacitor_discharge') {
+      baseDmg = (gameState.player.parts || 0) * 5;
+      gameState.player.parts = 0;
+    } else if (cardDef.id === 'scrap_cannon') {
+      baseDmg += (gameState.scrappedThisTurn || 0) * 6;
+    } else if (cardDef.id === 'hemorrhagic_rupture') {
+      baseDmg += (targetEnemy.hemorrhage || 0) * 4;
+    } else if (cardDef.id === 'concrete_shoes') {
+      baseDmg += gameState.mobEnforcers.length * 5;
+    }
+
+    // Mage T3 Mastery: Archmage Supremacy (+15 DMG on Mage Ultimates)
+    if (
+      gameState.classType === 'Mage' &&
+      getClassUnlockedArray('Mage')[2] &&
+      ['fireball', 'astral_singularity', 'astral_cataclysm'].includes(cardDef.id)
+    ) {
+      baseDmg += 15;
+    }
+
+    if (gameState.nextAttackBonusDmg > 0) {
+      baseDmg += gameState.nextAttackBonusDmg;
+      gameState.nextAttackBonusDmg = 0;
+    }
+
+    if (cardDef.id === 'spark') {
+      gameState.player.mana = Math.min(gameState.player.maxMana, gameState.player.mana + 1);
+    } else if (cardDef.id === 'wrench_toss') {
+      gainScrapParts(1);
+    } else if (cardDef.id === 'scrap_salvage') {
+      gainScrapParts(2);
+    } else if (cardDef.id === 'scrap_engine') {
+      gameState.nextScrapBonusEnergy += 1;
+    } else if (cardDef.id === 'siphon_slash') {
+      healPlayer(Math.max(1, Math.round(3 * echoScale)));
+    } else if (cardDef.id === 'crimson_frenzy' && gameState.player.hp < gameState.player.maxHp * 0.5) {
+      healPlayer(Math.max(1, Math.round(6 * echoScale)));
+    } else if (cardDef.id === 'tommy_gun_spray') {
+      gainSyndicateCash(Math.max(1, Math.round(5 * echoScale)), playerContainer.x, playerContainer.y - 30);
+    } else if (cardDef.id === 'shakedown') {
+      const cash = targetEnemy.hp < targetEnemy.maxHp * 0.5 ? 24 : 12;
+      gainSyndicateCash(Math.max(1, Math.round(cash * echoScale)), targetEnemy.container.x, targetEnemy.container.y - 35);
+    } else if (cardDef.id === 'kingpins_ultimatum') {
+      gameState.gold += 15;
+      showToast("👑 Kingpin's Ultimatum: +15g Run Gold!", 'success');
+    } else if (cardDef.id === 'golden_peacemaker') {
+      gainSyndicateCash(Math.max(1, Math.round(15 * echoScale)), targetEnemy.container.x, targetEnemy.container.y - 35);
+    } else if (cardDef.id === 'chicago_typewriter') {
+      gainSyndicateCash(Math.max(1, Math.round(8 * echoScale)), playerContainer.x, playerContainer.y - 30);
+    } else if (cardDef.id === 'royal_flush') {
+      addPlayerShield(Math.max(1, Math.round(15 * echoScale)));
+      healPlayer(Math.max(1, Math.round(10 * echoScale)));
+      gameState.player.energy += 1;
+      gainSyndicateCash(Math.max(1, Math.round(20 * echoScale)), playerContainer.x, playerContainer.y - 30);
+    }
+
+    const isAoE = ['astral_singularity', 'cleaving_execution', 'titans_cleave', 'drive_by_ambush'].includes(cardDef.id);
+    const targets = isAoE ? gameState.enemies.filter(e => e.hp > 0) : [targetEnemy];
+
+    targets.forEach(tgt => {
+      const prevTargetHp = tgt.hp;
+
+      for (let h = 0; h < hits; h++) {
+        if (tgt.hp <= 0) break;
+        let dmg = Math.max(1, Math.round(baseDmg * echoScale));
+
+        // Warrior T2 Mastery: Turtle Momentum (2 turns no HP loss -> 1.5x DMG)
+        if (gameState.classType === 'Warrior' && getClassUnlockedArray('Warrior')[1] && gameState.warriorNoHpLossTurns >= 2) {
+          dmg = Math.round(dmg * 1.5);
+        }
+
+        // Chronomancer T1 Mastery: Temporal Anchor (+10% DMG on unvaulted cards)
+        if (gameState.classType === 'Chronomancer' && getClassUnlockedArray('Chronomancer')[0] && cardObj.wasUnvaultedThisTurn) {
+          dmg = Math.round(dmg * 1.10);
+        }
+
+        if (gameState.relics.TIME_WARP >= 3 && slotIndex === 1) {
+          dmg = Math.round(dmg * 1.35);
+        }
+        if (gameState.relics.FRENZY > 0) {
+          const missingPct = Math.max(0, (gameState.player.maxHp - gameState.player.hp) / gameState.player.maxHp);
+          dmg = Math.round(dmg * (1 + missingPct * 0.5 * gameState.relics.FRENZY));
+        }
+
+        const effectiveCritChance = Math.min(1.0, (gameState.player.critChance || 0) + (gameState.relics.BLACK_FLASH || 0) * 0.05 + (gameState.tempCritBonus || 0));
+        const forceCrit = gameState.shadowCritPrimed || gameState.nextAttackForceCrit || (cardDef.id === 'phantom_ambush' && gameState.shadowCritPrimed);
+        const isCrit = forceCrit || Math.random() < effectiveCritChance;
+
+        if (isCrit) {
+          gameState.shadowCritPrimed = false;
+          gameState.nextAttackForceCrit = false;
+          let critMult = gameState.relics.BLACK_FLASH >= 3 ? 2.25 : 2.0;
+          if (cardDef.id === 'golden_peacemaker') critMult = 2.5;
+          if (gameState.classType === 'Blood Reaver' && getClassUnlockedArray('Blood Reaver')[1] && (tgt.hemorrhage || 0) > 0) {
+            critMult += 0.25;
+          }
+          dmg = Math.round(dmg * critMult);
+
+          if (gameState.classType === 'Mob Boss') {
+            gainSyndicateCash(8, tgt.container.x, tgt.container.y - 35);
+          }
+
+          if (gameState.relics.BLACK_FLASH > 0) {
+            const isT3 = gameState.relics.BLACK_FLASH >= 3;
+            spawnBlackFlashVFX(tgt.container.x, tgt.container.y, isT3);
+            triggerShake(isT3 ? 18 : 11, isT3 ? 13 : 8);
+            spawnFloatingText(`⚡ BLACK FLASH! -${dmg}`, tgt.container.x, tgt.container.y - 38, '#ef4444');
+          } else {
+            spawnFloatingText(`CRIT! -${dmg}`, tgt.container.x, tgt.container.y - 34, '#facc15');
+          }
+        } else {
+          spawnFloatingText(`-${dmg}`, tgt.container.x, tgt.container.y - 24, '#ffffff');
+        }
+
+        if (cardDef.id === 'tommy_drum_extortion') {
+          gainSyndicateCash(4, tgt.container.x, tgt.container.y - 25);
+        }
+
+        dealDamageToEnemy(tgt, dmg, isCrit);
+
+        if (cardDef.id === 'blood_boil' && (tgt.hemorrhage || 0) > 0) {
+          const bleedBurst = tgt.hemorrhage * 2;
+          dealDamageToEnemy(tgt, bleedBurst, false, '#e11d48');
+          spawnFloatingText(`BOIL -${bleedBurst}`, tgt.container.x, tgt.container.y - 42, '#fb7185');
+        }
+
+        let lifestealRatio = gameState.nextAttackLifesteal || 0;
+        if (gameState.relics.FRENZY >= 3) lifestealRatio += 0.15;
+        if (gameState.classType === 'Blood Reaver' && getClassUnlockedArray('Blood Reaver')[2] && gameState.player.hp < gameState.player.maxHp * 0.40) {
+          lifestealRatio += isCrit ? 1.0 : 0.30;
+        }
+        if (lifestealRatio > 0) {
+          healPlayer(Math.max(1, Math.round(dmg * lifestealRatio)));
+        }
+      }
+
+      // Sanguine Eclipse: Heal 50% of unblocked HP DMG dealt
+      if (cardDef.id === 'sanguine_eclipse') {
+        const unblockedDmg = Math.max(0, prevTargetHp - Math.max(0, tgt.hp));
+        if (unblockedDmg > 0) {
+          const eclipseHeal = Math.max(1, Math.round(unblockedDmg * 0.50));
+          healPlayer(eclipseHeal);
+          spawnFloatingText(`ECLIPSE +${eclipseHeal} HP`, playerContainer.x, playerContainer.y - 48, '#fb7185');
+        }
+      }
+
+      gameState.nextAttackLifesteal = 0;
+
+      if (cardDef.poison && tgt.hp > 0) {
+        const pGain = Math.max(1, Math.round(cardDef.poison * echoScale));
+        tgt.poison = (tgt.poison || 0) + pGain;
+        spawnPoisonBubbles(tgt.container.x, tgt.container.y);
+      }
+      if (cardDef.id === 'venom_spreader' && tgt.hp > 0) {
+        const bonusP = Math.min(5, tgt.poison || 0);
+        if (bonusP > 0) tgt.poison += bonusP;
+      }
+      if (cardDef.id === 'venom_surge' && tgt.hp > 0) {
+        const ahead = slotIndex;
+        if (ahead > 0) tgt.poison = (tgt.poison || 0) + ahead * 3;
+      }
+      if (cardDef.burn && tgt.hp > 0) {
+        let bGain = cardDef.burn;
+        if (cardDef.id === 'thermite_rivets' && gameState.turrets.length > 0) bGain = 5;
+        tgt.burn = (tgt.burn || 0) + bGain;
+      }
+      const bleedApply = (cardDef.hemorrhage || 0) + (gameState.nextAttackBleed || 0);
+      if (bleedApply > 0 && tgt.hp > 0) {
+        tgt.hemorrhage = (tgt.hemorrhage || 0) + bleedApply;
+        spawnFloatingText(`+${bleedApply} BLEED`, tgt.container.x, tgt.container.y - 44, '#e11d48');
+      }
+      if (gameState.relics.IGNITION > 0 && slotIndex === 2 && tgt.hp > 0) {
+        const burnBonus = gameState.relics.IGNITION * 5;
+        dealDamageToEnemy(tgt, burnBonus, false, '#f97316');
+      }
+    });
+
+    gameState.nextAttackBleed = 0;
+
+    if (cardDef.id === 'drive_by_ambush') {
+      fireAllMobEnforcers(1.0);
+    }
+  }
+}
+
+function healPlayer(amount) {
+  if (amount <= 0) return;
+  const maxAllowed = gameState.player.maxHp + getBloodReaverOverhealCap();
+  gameState.player.hp = Math.min(maxAllowed, gameState.player.hp + amount);
+  spawnFloatingText(`+${amount} HP`, playerContainer.x, playerContainer.y - 36, '#4ade80');
+}
+
+function dealWarriorColossusShockwave(shockwaveDmg) {
+  if (!Array.isArray(gameState.enemies) || shockwaveDmg <= 0) return;
+  let hitAny = false;
+  gameState.enemies.forEach(e => {
+    if (e.hp > 0) {
+      dealDamageToEnemy(e, shockwaveDmg, false, '#38bdf8');
+      hitAny = true;
+    }
+  });
+  if (hitAny && playerContainer) {
+    spawnBarrierPulseVFX(playerContainer.x, playerContainer.y);
+    spawnFloatingText(`🛡️ COLOSSUS WAVE ${shockwaveDmg}`, playerContainer.x, playerContainer.y - 52, '#38bdf8');
+  }
+}
+
+function dealDamageToEnemy(enemy, amount, isCrit = false, customColor = null, pierceShield = false) {
+  if (!enemy || enemy.hp <= 0) return;
+  let remaining = amount;
+
+  if (!pierceShield && (enemy.shield || 0) > 0) {
+    const blocked = Math.min(enemy.shield, remaining);
+    enemy.shield -= blocked;
+    remaining -= blocked;
+    if (blocked > 0 && enemy.container) {
+      spawnFloatingText(`🛡️-${blocked}`, enemy.container.x, enemy.container.y - 12, '#38bdf8');
+    }
+  }
+
+  enemy.hp = Math.max(0, enemy.hp - remaining);
+
+  // Rogue T3 Mastery: Executioner (Execute enemies <20% HP & heal 80% of executed HP)
+  if (
+    enemy.hp > 0 &&
+    enemy.hp < enemy.maxHp * 0.20 &&
+    gameState.classType === 'Rogue' &&
+    getClassUnlockedArray('Rogue')[2]
+  ) {
+    const executedHp = enemy.hp;
+    enemy.hp = 0;
+    const healAmt = Math.max(1, Math.round(executedHp * 0.80));
+    healPlayer(healAmt);
+    if (enemy.container) {
+      spawnFloatingText('🗡️ EXECUTIONER!', enemy.container.x, enemy.container.y - 48, '#4ade80');
+    }
+  }
+
+  if (enemy.sprite) {
+    flashEntity(enemy.sprite, isCrit ? 0xfacc15 : 0xffffff);
+  }
+
+  if (enemy.hp <= 0 && !enemy.countedKill) {
+    enemy.countedKill = true;
+    if (masteryData[gameState.classType]) {
+      masteryData[gameState.classType].kills++;
+      checkMasteryUnlocks(gameState.classType);
+      saveMasteryData();
+    }
+    if (gameState.classType === 'Mob Boss') {
+      gainSyndicateCash(8, enemy.container.x, enemy.container.y - 25);
+      gainNotoriety(2);
+    }
+    // Mob Boss T3 Untouchable Kingpin gates the +$25 Bounty Hit payout
+    if (gameState.bountyTargetId === enemy.id) {
+      gameState.bountyTargetId = null;
+      const isMobT3 = gameState.classType === 'Mob Boss' && getClassUnlockedArray('Mob Boss')[2];
+      const payout = isMobT3 ? 50 : 25;
+      gainSyndicateCash(payout, enemy.container.x, enemy.container.y - 45);
+      gainNotoriety(5);
+      showToast(`💰 BOUNTY COLLECTED: +$${payout} Cash & +5 ★ Notoriety!`, 'success');
+    }
+    if (enemy.container) {
+      spawnVFXParticles(enemy.container.x, enemy.container.y, 0xef4444, 24, 6);
+      enemy.container.visible = false;
+    }
+  }
+}
+
+// --- 6-CONSTRUCT FOUNDRY END-OF-TURN & OVERCLOCK VOLLEYS ---
+function fireAllArtificerTurrets(mult = 1.0) {
+  if (gameState.turrets.length === 0) return;
+
+  const isArtificerT2 = gameState.classType === 'Artificer' && getClassUnlockedArray('Artificer')[1];
+  const isArtificerT4 = gameState.classType === 'Artificer' && getClassUnlockedArray('Artificer')[3];
+
+  gameState.turrets.forEach((t, idx) => {
+    const spec = CONSTRUCT_CATALOG[t.type] || CONSTRUCT_CATALOG.auto_turret;
+    const droneSprite = turretGroup && turretGroup.children[idx] ? turretGroup.children[idx] : null;
+    const sx = droneSprite ? droneSprite.x : (playerContainer ? playerContainer.x + 50 : 220);
+    const sy = droneSprite ? droneSprite.y : (playerContainer ? playerContainer.y : 130);
+
+    // Passive Shield / Parts generation per Construct
+    if (spec.shieldPerTurn > 0) {
+      const shGain = Math.max(1, Math.round(spec.shieldPerTurn * mult));
+      addPlayerShield(shGain);
+      spawnBarrierPulseVFX(sx, sy);
+    }
+    if (spec.partsPerTurn > 0) {
+      gainScrapParts(spec.partsPerTurn);
+      spawnFloatingText(`+${spec.partsPerTurn} PART`, sx, sy - 24, '#818cf8');
+    }
+
+    const livingEnemies = gameState.enemies.filter(e => e.hp > 0);
+    if (livingEnemies.length === 0) return;
+    const primaryTarget = livingEnemies[0];
+
+    if (spec.dmg > 0) {
+      const calcShotDmg = (baseVal) => {
+        let d = Math.max(1, Math.round(baseVal * mult));
+        if (isArtificerT2 && Math.random() < (gameState.player.critChance || 0.10)) {
+          d = Math.round(d * 2.0);
+        }
+        return d;
+      };
+
+      if (spec.type === 'heavy_rail') {
+        const d = calcShotDmg(spec.dmg);
+        spawnRailgunBeamVFX(sx, sy, primaryTarget.container.x, primaryTarget.container.y);
+        dealDamageToEnemy(primaryTarget, d, false, '#38bdf8', true); // Pierces enemy shield!
+        spawnFloatingText(`RAIL -${d}`, primaryTarget.container.x, primaryTarget.container.y - 30, '#38bdf8');
+      } else if (spec.type === 'inferno_flame') {
+        livingEnemies.forEach(e => {
+          const d = calcShotDmg(spec.dmg);
+          spawnFlameJetVFX(sx, sy, e.container.x, e.container.y);
+          dealDamageToEnemy(e, d, false, '#f97316');
+          e.burn = (e.burn || 0) + (spec.burn || 3);
+        });
+      } else if (spec.type === 'arc_tesla') {
+        const d = calcShotDmg(spec.dmg);
+        spawnChainLightningVFX(sx, sy, primaryTarget.container.x, primaryTarget.container.y, 0x818cf8);
+        dealDamageToEnemy(primaryTarget, d, false, '#818cf8');
+        const chainTarget = livingEnemies.length > 1 ? livingEnemies[1] : primaryTarget;
+        const cDmg = calcShotDmg(spec.chainDmg || 4);
+        spawnChainLightningVFX(primaryTarget.container.x, primaryTarget.container.y, chainTarget.container.x, chainTarget.container.y, 0x38bdf8);
+        dealDamageToEnemy(chainTarget, cDmg, false, '#38bdf8');
+      } else if (spec.type === 'goliath_mech') {
+        const d = calcShotDmg(spec.dmg);
+        spawnMechSalvoVFX(sx, sy, primaryTarget.container.x, primaryTarget.container.y);
+        dealDamageToEnemy(primaryTarget, d, false, '#eab308');
+        spawnFloatingText(`MECH -${d}`, primaryTarget.container.x, primaryTarget.container.y - 34, '#eab308');
+      } else {
+        // Auto-Turret Drone
+        const d = calcShotDmg(spec.dmg);
+        spawnGunfireTracer(sx, sy, primaryTarget.container.x, primaryTarget.container.y, 0xf59e0b);
+        dealDamageToEnemy(primaryTarget, d, false, '#f59e0b');
+        if (spec.burn > 0) primaryTarget.burn = (primaryTarget.burn || 0) + spec.burn;
+      }
+
+      // Artificer T4 Mastery: Omega Foundry (Construct volleys apply 1 Burn stack & restore +2 Player Shield per shot)
+      if (isArtificerT4) {
+        if (primaryTarget.hp > 0) primaryTarget.burn = (primaryTarget.burn || 0) + 1;
+        addPlayerShield(2);
+      }
+    }
+  });
+}
+
+function fireAllMobEnforcers(mult = 1.0) {
+  if (gameState.mobEnforcers.length === 0) return;
+  const crewCount = gameState.mobEnforcers.length;
+  const hasMadeMen = gameState.classType === 'Mob Boss' && getClassUnlockedArray('Mob Boss')[1];
+  const isMobT4 = gameState.classType === 'Mob Boss' && getClassUnlockedArray('Mob Boss')[3];
+  const bonusPerMember = hasMadeMen ? crewCount * 3 : 0;
+
+  gameState.mobEnforcers.forEach((m, idx) => {
+    const target = getFirstLivingEnemy();
+    if (!target) return;
+    const goonSprite = enforcerGroup && enforcerGroup.children[idx] ? enforcerGroup.children[idx] : null;
+    const sx = goonSprite ? goonSprite.x : (playerContainer ? playerContainer.x + 55 : 225);
+    const sy = goonSprite ? goonSprite.y : (playerContainer ? playerContainer.y : 130);
+
+    const dmg = Math.max(1, Math.round((5 + bonusPerMember) * mult));
+    spawnGunfireTracer(sx, sy, target.container.x, target.container.y, 0xfef08a);
+    spawnShellCasings(sx, sy, 2);
+    dealDamageToEnemy(target, dmg, false, '#eab308');
+
+    // Mob Boss T4 Mastery: Godfather of the Underworld (Enforcers extort +$4 Cash per attack)
+    if (isMobT4) {
+      gainSyndicateCash(4, target.container.x, target.container.y - 28);
+    }
+  });
+}
+
+function getFirstLivingEnemy() {
+  return gameState.enemies.find(e => e.hp > 0) || null;
+}
+
+// --- END PLAYER TURN & CARD-PLAYING ENEMY AI ---
+function endPlayerTurn() {
+  if (gameState.combatOver) return;
+
+  fireAllArtificerTurrets(1.0);
+  fireAllMobEnforcers(1.0);
+  if (checkPostActionVictoryOrDefeat()) return;
+
+  gameState.enemies.forEach(e => {
+    if (e.hp > 0 && (e.poison || 0) > 0) {
+      const pDmg = e.poison;
+      e.poison = Math.max(0, e.poison - 1);
+      dealDamageToEnemy(e, pDmg, false, '#22c55e', true);
+      spawnPoisonBubbles(e.container.x, e.container.y);
+      spawnFloatingText(`☣️ -${pDmg}`, e.container.x, e.container.y - 28, '#4ade80');
+    }
+    if (e.hp > 0 && (e.burn || 0) > 0) {
+      const bDmg = e.burn;
+      e.burn = Math.max(0, e.burn - 1);
+      dealDamageToEnemy(e, bDmg, false, '#f97316', true);
+      spawnFloatingText(`🔥 -${bDmg}`, e.container.x, e.container.y - 36, '#fb923c');
+    }
+    if (e.hp > 0 && (e.hemorrhage || 0) > 0) {
+      const hDmg = e.hemorrhage;
+      e.hemorrhage = Math.max(0, e.hemorrhage - 1);
+      dealDamageToEnemy(e, hDmg, false, '#e11d48', true);
+      spawnFloatingText(`🩸 -${hDmg}`, e.container.x, e.container.y - 44, '#fb7185');
+      if (e.hp <= 0 && gameState.classType === 'Blood Reaver' && getClassUnlockedArray('Blood Reaver')[1]) {
+        healPlayer(12);
+        showToast('🩸 Crimson Resonance: Bleed Kill healed +12 HP!', 'success');
+      }
+    }
+  });
+
+  if (checkPostActionVictoryOrDefeat()) return;
 
   setTimeout(() => {
-   triggerCardDraftModal();
-  }, 450);
-  return true;
- }
- return false;
+    if (!gameState.combatOver) executeEnemyTurns();
+  }, 420);
 }
 
-async function executeEnemyTurns() {
- const px = playerSprite ? playerSprite.x : 200;
- const py = playerSprite ? playerSprite.y : 138;
- const shadowTier = gameState.passives.SHADOW_WEAVE || 0;
- const defTier = gameState.passives.DEFLECTION || 0;
- const intimidateMult = gameState.intimidateMultiplier || 1.0;
+function executeEnemyTurns() {
+  const livingEnemies = gameState.enemies.filter(e => e.hp > 0);
+  let idx = 0;
 
- for (let i = 0; i < gameState.enemies.length; i++) {
-  const enemy = gameState.enemies[i];
-  if (enemy.hp <= 0) continue;
-  const eSprite = enemySprites[i];
-  const ex = eSprite ? eSprite.x : 750;
-  const ey = eSprite ? eSprite.y : 138;
+  function stepEnemy() {
+    if (gameState.combatOver) return;
+    if (idx >= livingEnemies.length) {
+      finishEnemyPhase();
+      return;
+    }
 
-  if ((enemy.poison || 0) > 0) {
-   const poisonDmg = enemy.poison;
-   enemy.hp = Math.max(0, enemy.hp - poisonDmg);
-   enemy.poison = Math.max(0, enemy.poison - 1);
-   spawnPoisonBubbles(ex, ey, 10);
-   spawnFloatingText(ex, ey - 28, `-${poisonDmg} POISON`, '#4ade80');
-   await new Promise(r => setTimeout(r, 240 * gameState.speedMultiplier));
-   if (enemy.hp <= 0) continue;
+    const enemy = livingEnemies[idx];
+    idx++;
+
+    const cardsThisTurn = enemy.cardsPerTurn || 1;
+    let cardPlayIdx = 0;
+
+    function playNextEnemyCard() {
+      if (gameState.combatOver || enemy.hp <= 0 || cardPlayIdx >= cardsThisTurn) {
+        setTimeout(stepEnemy, 340);
+        return;
+      }
+
+      const intent = enemy.intents[enemy.turnIndex % enemy.intents.length];
+      enemy.turnIndex++;
+      cardPlayIdx++;
+
+      const cardTitle = intent.cardName ? `🃏 ${intent.cardName}` : intent.type;
+      if (enemy.container) {
+        spawnFloatingText(cardTitle, enemy.container.x, enemy.container.y - 54, '#e2e8f0');
+      }
+
+      if (intent.type === 'DEFEND') {
+        enemy.shield = (enemy.shield || 0) + intent.value;
+        if (enemy.container) {
+          spawnVFXParticles(enemy.container.x, enemy.container.y, 0x38bdf8, 12, 3);
+          spawnFloatingText(`🛡️ +${intent.value}`, enemy.container.x, enemy.container.y - 30, '#38bdf8');
+        }
+        setTimeout(playNextEnemyCard, 280);
+        return;
+      }
+
+      if (intent.type === 'HEAL') {
+        const injuredAlly = gameState.enemies.filter(e => e.hp > 0).sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp))[0] || enemy;
+        injuredAlly.hp = Math.min(injuredAlly.maxHp, injuredAlly.hp + intent.value);
+        if (intent.shieldValue) {
+          injuredAlly.shield = (injuredAlly.shield || 0) + intent.shieldValue;
+        }
+        if (injuredAlly.container) {
+          spawnVFXParticles(injuredAlly.container.x, injuredAlly.container.y, 0x4ade80, 14, 3);
+          spawnFloatingText(`+${intent.value} HP`, injuredAlly.container.x, injuredAlly.container.y - 30, '#4ade80');
+        }
+        setTimeout(playNextEnemyCard, 280);
+        return;
+      }
+
+      // ATTACK or COMBO (Attack + Shield/Debuff)
+      if (intent.shieldValue) {
+        enemy.shield = (enemy.shield || 0) + intent.shieldValue;
+        if (enemy.container) {
+          spawnFloatingText(`🛡️ +${intent.shieldValue}`, enemy.container.x, enemy.container.y - 32, '#38bdf8');
+        }
+      }
+
+      const hits = intent.hits || 1;
+      for (let h = 0; h < hits; h++) {
+        if (gameState.combatOver) break;
+
+        // Reactive Poison from Shadow Step Mirage
+        if ((gameState.miragePoisonRetaliate || 0) > 0 && enemy.hp > 0) {
+          const pRet = gameState.miragePoisonRetaliate;
+          enemy.poison = (enemy.poison || 0) + pRet;
+          spawnPoisonBubbles(enemy.container.x, enemy.container.y);
+          spawnFloatingText(`☣️ MIRAGE +${pRet}`, enemy.container.x, enemy.container.y - 38, '#4ade80');
+        }
+
+        const totalDodge = Math.min(0.85, (gameState.player.dodgeChance || 0) + (gameState.relics.SHADOW_WEAVE || 0) * 0.05);
+        const dodged = gameState.guaranteedDodges > 0 || Math.random() < totalDodge;
+
+        if (dodged) {
+          if (gameState.guaranteedDodges > 0) gameState.guaranteedDodges--;
+          spawnFloatingText('DODGED!', playerContainer.x, playerContainer.y - 35, '#4ade80');
+          if (gameState.classType === 'Rogue') {
+            gameState.shadowCritPrimed = true;
+            // Rogue T4 Mastery: Phantom Sovereign (Dodging deals 14 Shadow Counter DMG, applies 2 Poison & draws 1 Action card)
+            if (getClassUnlockedArray('Rogue')[3] && enemy.hp > 0) {
+              dealDamageToEnemy(enemy, 14, false, '#4ade80');
+              enemy.poison = (enemy.poison || 0) + 2;
+              const actCard = drawSpecificCategory('action');
+              if (actCard) gameState.hand.push(actCard);
+              spawnFloatingText('👻 PHANTOM COUNTER -14 & +2☣️!', enemy.container.x, enemy.container.y - 44, '#4ade80');
+            }
+          }
+          if (gameState.relics.SHADOW_WEAVE >= 3) {
+            healPlayer(Math.max(1, Math.round(gameState.player.maxHp * 0.05)));
+          }
+          continue;
+        }
+
+        let incoming = intent.value;
+        if (gameState.enemyAtkDebuff > 0) {
+          incoming = Math.max(1, Math.round(incoming * (1 - gameState.enemyAtkDebuff)));
+        }
+
+        // Frontline Hired Enforcer Interception (50%)
+        if (gameState.mobEnforcers.length > 0 && incoming > 0) {
+          const frontGoon = gameState.mobEnforcers[0];
+          const intercepted = Math.ceil(incoming * 0.50);
+          incoming -= intercepted;
+          frontGoon.hp -= intercepted;
+          spawnFloatingText(`GOON -${intercepted}`, playerContainer.x + 55, playerContainer.y - 25, '#eab308');
+
+          if (gameState.classType === 'Mob Boss' && getClassUnlockedArray('Mob Boss')[1] && enemy.hp > 0) {
+            dealDamageToEnemy(enemy, 6, false, '#eab308');
+            spawnFloatingText('RETALIATE -6', enemy.container.x, enemy.container.y - 35, '#eab308');
+          }
+
+          if (frontGoon.hp <= 0) {
+            gameState.mobEnforcers.shift();
+            showToast('💥 A Hired Enforcer took a fatal bullet for you!', 'warning');
+          }
+          renderMobEnforcers();
+        }
+
+        // Frontline Artificer Construct Interception (65% for Aegis Force-Barrier, 50% for others)
+        if (gameState.turrets.length > 0 && incoming > 0) {
+          const aegisIdx = gameState.turrets.findIndex(t => t.type === 'aegis_barrier');
+          const interceptIdx = aegisIdx !== -1 ? aegisIdx : 0;
+          const frontTurret = gameState.turrets[interceptIdx];
+          const spec = CONSTRUCT_CATALOG[frontTurret.type] || CONSTRUCT_CATALOG.auto_turret;
+          const ratio = spec.interceptRatio || 0.50;
+
+          const intercepted = Math.ceil(incoming * ratio);
+          incoming -= intercepted;
+          frontTurret.hp -= intercepted;
+          spawnFloatingText(`${frontTurret.name.split(' ')[0].toUpperCase()} -${intercepted}`, playerContainer.x + 50, playerContainer.y - 20, '#f59e0b');
+
+          if (gameState.reactiveArmorActive && enemy.hp > 0) {
+            gainScrapParts(1);
+            dealDamageToEnemy(enemy, 5, false, '#38bdf8');
+          }
+
+          if (frontTurret.hp <= 0) {
+            gameState.turrets.splice(interceptIdx, 1);
+            showToast(`💥 ${frontTurret.name} destroyed intercepting enemy fire!`, 'warning');
+          }
+          renderArtificerTurrets();
+        }
+
+        const origIncoming = incoming;
+        if (gameState.relics.DEFLECTION >= 3 && incoming > 0) {
+          const reflected = Math.max(1, Math.round(incoming * 0.5));
+          dealDamageToEnemy(enemy, reflected, false, '#38bdf8');
+        }
+        if (gameState.thornsDmgThisTurn > 0 && enemy.hp > 0) {
+          dealDamageToEnemy(enemy, gameState.thornsDmgThisTurn, false, '#38bdf8');
+        }
+
+        const shieldAbsorbed = Math.min(gameState.player.shield, incoming);
+        gameState.player.shield -= shieldAbsorbed;
+        const hpLoss = incoming - shieldAbsorbed;
+        gameState.player.hp = Math.max(0, gameState.player.hp - hpLoss);
+
+        if (hpLoss > 0) {
+          gameState.tookHpDamageThisTurn = true;
+        }
+
+        // Relic: Aegis Overcharger Tier 3 (Full Shield blocks trigger a 10 DMG counter-pulse)
+        if ((gameState.relics.AEGIS_OVERCHARGER || 0) >= 3 && hpLoss === 0 && shieldAbsorbed > 0 && enemy.hp > 0) {
+          spawnBarrierPulseVFX(playerContainer.x, playerContainer.y);
+          dealDamageToEnemy(enemy, 10, false, '#22d3ee');
+          spawnFloatingText('🛡️ AEGIS PULSE -10!', enemy.container.x, enemy.container.y - 42, '#22d3ee');
+        }
+
+        triggerShake(10, 8);
+        flashEntity(playerSprite, 0xef4444);
+        if (hpLoss > 0) {
+          spawnFloatingText(`-${hpLoss}`, playerContainer.x, playerContainer.y - 25, '#ef4444');
+        } else if (origIncoming > 0) {
+          spawnFloatingText(`BLOCKED (${shieldAbsorbed})`, playerContainer.x, playerContainer.y - 25, '#38bdf8');
+        }
+      }
+
+      // Enemy Card Secondary Debuffs (Poison, Burn, Hemorrhage, Energy Drain)
+      if (intent.debuffType && !gameState.combatOver) {
+        const dVal = intent.debuffValue || 1;
+        if (intent.debuffType === 'energy_drain') {
+          gameState.nextTurnBonusEnergy -= dVal;
+          spawnFloatingText(`⚡ -${dVal} NEXT TURN`, playerContainer.x, playerContainer.y - 46, '#c084fc');
+        } else if (intent.debuffType === 'bleed' || intent.debuffType === 'burn' || intent.debuffType === 'poison') {
+          const dotDmg = dVal * 2;
+          gameState.player.hp = Math.max(1, gameState.player.hp - dotDmg);
+          gameState.tookHpDamageThisTurn = true;
+          spawnFloatingText(`HEX -${dotDmg} HP`, playerContainer.x, playerContainer.y - 46, '#fb7185');
+        }
+      }
+
+      updateBattleUI();
+      if (checkPostActionVictoryOrDefeat()) return;
+      setTimeout(playNextEnemyCard, 280);
+    }
+
+    playNextEnemyCard();
   }
 
-  if ((enemy.burn || 0) > 0) {
-   const burnDmg = enemy.burn;
-   enemy.hp = Math.max(0, enemy.hp - burnDmg);
-   enemy.burn = Math.max(0, enemy.burn - 1);
-   spawnParticles(ex, ey, 12, { colors: [0xf97316, 0xfef08a], speed: 3.4, life: 20 });
-   spawnFloatingText(ex, ey - 32, `-${burnDmg} BURN`, '#f97316');
-   await new Promise(r => setTimeout(r, 240 * gameState.speedMultiplier));
-   if (enemy.hp <= 0) continue;
-  }
-
-  const intent = enemy.sequence[Math.floor(Math.random() * enemy.sequence.length)];
-  if (intent.type === 'ATTACK') {
-   const dodgeChance = getEffectiveDodgeChance();
-   if (Math.random() < dodgeChance) {
-    if ((gameState.guaranteedDodgeCount || 0) > 0) gameState.guaranteedDodgeCount -= 1;
-    spawnParticles(px, py, 16, { colors: [0x38bdf8, 0x4ade80], speed: 3.5, life: 22 });
-    spawnFloatingText(px, py - 24, 'DODGED!', '#4ade80');
-
-    if (gameState.classType === 'Chronomancer') {
-     gameState.chronosDodgeCounter = (gameState.chronosDodgeCounter || 0) + 1;
-     if (gameState.chronosDodgeCounter % 2 === 0) {
-      gainChronos(1, px, py, 'CHRONO EVASION → +1 CHRONOS!');
-     }
-    }
-
-    triggerRogueShadowCounter(px, py);
-
-    if (shadowTier >= 3) {
-     const dodgeHeal = Math.max(2, Math.round(gameState.player.maxHp * 0.05));
-     healPlayerHp(dodgeHeal, px, py);
-    }
-   } else {
-    let dmg = Math.max(1, Math.round(intent.value * intimidateMult));
-
-    // Mob Boss Hired Enforcers intercept enemy attacks first & retaliate!
-    if (gameState.enforcers && gameState.enforcers.length > 0 && dmg > 0) {
-     const frontEnforcer = gameState.enforcers[0];
-     const absorbed = Math.min(frontEnforcer.hp, dmg);
-     frontEnforcer.hp -= absorbed;
-     dmg -= absorbed;
-     spawnSlashArc(px + 42, py, 0.3, 44, 0xeab308, 0xffffff);
-     spawnFloatingText(px + 34, py - 24, `🎩 ENFORCER TOOK -${absorbed} HP`, '#eab308');
-
-     // Enforcer Frontline Counter-Fire Retaliation
-     const hasMadeMen = gameState.classType === 'Mob Boss' && getClassUnlockedArray('Mob Boss')[1];
-     const counterDmg = 4 + (hasMadeMen ? gameState.enforcers.length * 2 : 0);
-     enemy.hp = Math.max(0, enemy.hp - counterDmg);
-     spawnGunfireVolleyVFX(px + 42, py, ex, ey, 2);
-     spawnFloatingText(ex, ey - 36, `🔫 ENFORCER RETALIATE -${counterDmg} HP`, '#eab308');
-
-     if (frontEnforcer.hp <= 0) {
-      gameState.enforcers.shift();
-      spawnParticles(px + 42, py, 16, { colors: [0xeab308, 0xef4444], speed: 4.0, life: 22 });
-      spawnFloatingText(px + 34, py - 42, 'ENFORCER DOWN!', '#f87171');
-     }
-     updateAbilityBarLabel();
-    }
-
-    // Artificer Constructs intercept incoming damage based on Construct interceptRatio (40% - 65%)
-    if (gameState.turrets && gameState.turrets.length > 0 && dmg > 0) {
-     const frontTurret = gameState.turrets[0];
-     const spec = (typeof CONSTRUCT_CATALOG !== 'undefined' && CONSTRUCT_CATALOG[frontTurret.type])
-      ? CONSTRUCT_CATALOG[frontTurret.type]
-      : { name: 'Auto-Turret', interceptRatio: 0.50 };
-     const ratio = spec.interceptRatio || 0.50;
-     const interceptTarget = Math.max(1, Math.ceil(dmg * ratio));
-     const absorbedByTurret = Math.min(frontTurret.hp, interceptTarget);
-     frontTurret.hp -= absorbedByTurret;
-     dmg -= absorbedByTurret;
-
-     spawnSlashArc(px + 38, py, 0.3, 44, 0xf59e0b, 0xffffff);
-     spawnFloatingText(px + 30, py - 24, `CONSTRUCT INTERCEPT -${absorbedByTurret} HP`, '#f59e0b');
-
-     if (gameState.reactiveArmorActive) {
-      gainParts(1, px, py, 'REACTIVE ARMOR → +1 PART!');
-      enemy.hp = Math.max(0, enemy.hp - 5);
-      spawnLightningBolt(px + 38, py, ex, ey, 0xf59e0b, 0x38bdf8);
-      spawnFloatingText(ex, ey - 32, 'REACTIVE COUNTER -5 HP', '#f59e0b');
-     }
-
-     if (frontTurret.hp <= 0) {
-      gameState.turrets.shift();
-      spawnParticles(px + 38, py, 18, { colors: [0xf59e0b, 0xef4444, 0xfef08a], speed: 4.5, shape: 'shard', life: 24 });
-      spawnFloatingText(px + 30, py - 42, 'CONSTRUCT DESTROYED!', '#f87171');
-     }
-     updateAbilityBarLabel();
-    }
-
-    if (dmg > 0) {
-     const shieldAbsorbed = Math.min(gameState.player.shield, dmg);
-     gameState.player.shield -= shieldAbsorbed;
-     const hpLoss = dmg - shieldAbsorbed;
-     gameState.player.hp = Math.max(0, gameState.player.hp - hpLoss);
-
-     spawnSlashArc(px, py, 0.4, 58, 0xef4444, 0xfca5a5);
-     spawnParticles(px, py, 12, { colors: [0xef4444, 0xf87171], speed: 3.8, life: 20 });
-     if (hpLoss > 0) triggerScreenShake(6, 10);
-     spawnFloatingText(px, py - 24, hpLoss > 0 ? `-${hpLoss} HP` : 'BLOCKED!', hpLoss > 0 ? '#ef4444' : '#38bdf8');
-    }
-
-    const warriorT4Thorns = (gameState.classType === 'Warrior' && getClassUnlockedArray('Warrior')[3]) ? 4 : 0;
-    const totalReflect = (defTier >= 3 ? Math.floor(intent.value * 0.5) : 0) + (gameState.reflectDamageThisTurn || 0) + warriorT4Thorns;
-    if (totalReflect > 0) {
-     enemy.hp = Math.max(0, enemy.hp - totalReflect);
-     spawnFloatingText(ex, ey - 24, `REFLECT -${totalReflect}`, '#38bdf8');
-    }
-   }
-  } else if (intent.type === 'DEFEND') {
-   spawnShockwave(ex, ey, 58, 0x38bdf8, 4, 20);
-   spawnFloatingText(ex, ey - 24, `${intent.name}`, '#38bdf8');
-  } else if (intent.type === 'HEAL') {
-   enemy.hp = Math.min(enemy.maxHp, enemy.hp + intent.value);
-   spawnParticles(ex, ey, 12, { colors: [0x4ade80], speed: 2.2, vyBias: -1.5, shape: 'plus', life: 22 });
-   spawnFloatingText(ex, ey - 24, `+${intent.value} HP`, '#4ade80');
-  }
-  renderUI();
-  await new Promise(r => setTimeout(r, 340 * gameState.speedMultiplier));
- }
+  stepEnemy();
 }
 
-function endPlayerTurnCleanup() {
- gameState.isExecuting = false;
- if (checkPostActionVictoryOrDefeat()) return;
+function finishEnemyPhase() {
+  if (checkPostActionVictoryOrDefeat()) return;
 
- if (gameState.player.hp <= 0) {
-  if (gameState.classType === 'Warrior' && getClassUnlockedArray('Warrior')[2] && !gameState.secondWindUsed) {
-   gameState.secondWindUsed = true;
-   gameState.player.hp = Math.max(10, Math.round(gameState.player.maxHp * 0.20));
-   addPlayerShield(15);
-   showToast('🔥 SECOND WIND ACTIVATED! Revived at 20% HP + 15 Shield!', 'var(--accent-gold)');
+  gameState.battleTurnCount++;
+
+  // Warrior T2 Mastery: Turtle Momentum tracking
+  if (gameState.classType === 'Warrior') {
+    if (!gameState.tookHpDamageThisTurn) {
+      gameState.warriorNoHpLossTurns++;
+      if (gameState.warriorNoHpLossTurns === 2 && getClassUnlockedArray('Warrior')[1]) {
+        showToast('🐢 TURTLE MOMENTUM ACTIVE: 1.5x DMG & Shield!', 'success');
+      }
+    } else {
+      gameState.warriorNoHpLossTurns = 0;
+    }
+  }
+  gameState.tookHpDamageThisTurn = false;
+
+  // Shield Decay (Warrior T4 Colossus Unbreakable carries over 100% Shield!)
+  const warriorT4Unbreakable = gameState.classType === 'Warrior' && getClassUnlockedArray('Warrior')[3];
+  if (!gameState.shieldDecayLocked && !warriorT4Unbreakable) {
+    gameState.player.shield = Math.floor(gameState.player.shield * 0.5);
+  }
+  gameState.shieldDecayLocked = false;
+  gameState.prismaticActive = false;
+  gameState.spellweaverEchoActive = false;
+  gameState.miragePoisonRetaliate = 0;
+  gameState.thornsDmgThisTurn = 0;
+  gameState.tempCritBonus = 0;
+  gameState.enemyAtkDebuff = 0;
+  gameState.reactiveArmorActive = false;
+  gameState.scrappedThisTurn = 0;
+  gameState.bonusScrapLimitThisTurn = 0;
+
+  if (gameState.relics.DEFLECTION > 0) {
+    addPlayerShield(gameState.relics.DEFLECTION * 3);
+  }
+
+  gameState.vault.forEach(vCard => {
+    vCard.turnsInVault = (vCard.turnsInVault || 0) + 1;
+  });
+
+  // Relic: Chrono Hourglass (Every 2nd turn, gain +1 Energy and advance all Stasis Vault cards by +1 turn)
+  if ((gameState.relics.CHRONO_HOURGLASS || 0) > 0 && (gameState.battleTurnCount % 2 === 0)) {
+    gameState.nextTurnBonusEnergy += 1;
+    gameState.vault.forEach(vCard => {
+      vCard.turnsInVault = (vCard.turnsInVault || 0) + 1;
+    });
+    showToast('⏳ Chrono Hourglass: +1 ⚡ & Stasis Vault +1 turn!', 'info');
+  }
+
+  if (gameState.nextTurnRestBonus) {
+    const isChronoT3 = gameState.classType === 'Chronomancer' && getClassUnlockedArray('Chronomancer')[2];
+    gameState.sequence = isChronoT3 ? [null, null, null, null, null] : [null, null, null, null];
+    gameState.nextTurnRestBonus = false;
   } else {
-   showToast('DEFEAT! Your champion has fallen. Returning to Main Menu...', 'var(--accent-red)');
-   setTimeout(() => {
-    window.resetGameState(gameState.classType);
-    window.showScreen('screen-main');
-   }, 1400);
-   return;
+    gameState.sequence = (gameState.relics.CHRONO_HOURGLASS || 0) >= 3 ? [null, null, null, null] : [null, null, null];
   }
- }
 
- // Chronomancer T2 Mastery: Accelerated Timeline (carry over up to 1 unspent Energy)
- const energyCarryover = (gameState.classType === 'Chronomancer' && getClassUnlockedArray('Chronomancer')[1])
-  ? Math.min(1, Math.max(0, gameState.currentEnergy))
-  : 0;
+  let carryOverEnergy = 0;
+  if (gameState.classType === 'Chronomancer' && getClassUnlockedArray('Chronomancer')[1]) {
+    carryOverEnergy = Math.min(1, gameState.player.energy);
+  }
 
- gameState.restBonusActiveThisTurn = gameState.restBonusActiveNextTurn;
- gameState.restBonusActiveNextTurn = false;
- const slotCount = gameState.restBonusActiveThisTurn ? 4 : 3;
- gameState.sequence = Array(slotCount).fill(null);
+  gameState.player.energy = Math.max(1, gameState.player.maxEnergy + gameState.nextTurnBonusEnergy + carryOverEnergy);
+  gameState.nextTurnBonusEnergy = 0;
 
- if (!gameState.juggernautStanceActive) {
-  const retainRatio = (gameState.classType === 'Warrior' && getClassUnlockedArray('Warrior')[3]) ? 0.75 : 0.50;
-  gameState.player.shield = Math.floor(gameState.player.shield * retainRatio);
- }
- gameState.juggernautStanceActive = false;
+  if (gameState.classType === 'Mage') {
+    const regen = 2 + gameState.nextTurnBonusMana;
+    gameState.nextTurnBonusMana = 0;
+    gameState.player.mana = Math.min(gameState.player.maxMana, gameState.player.mana + regen);
+  }
+  gameState.manaSpentThisTurn = 0;
+  gameState.cardsPlayedThisTurn = 0;
 
- const defTier = gameState.passives.DEFLECTION || 0;
- if (defTier > 0) addPlayerShield(defTier * 3);
+  drawCardsForTurn(false);
+  gameState.isExecuting = false;
+  updateBattleUI();
+}
 
- if (gameState.classType === 'Mage') {
-  const hasT1 = getClassUnlockedArray('Mage')[0];
-  const gain = hasT1 ? 2 : 1;
-  gameState.player.mana = Math.min(gameState.player.maxMana, gameState.player.mana + gain);
- }
+function checkPostActionVictoryOrDefeat() {
+  if (gameState.combatOver) return true;
 
- gameState.vault.forEach(vCard => {
-  vCard.turnsInVault = (vCard.turnsInVault || 0) + 1;
- });
+  if (gameState.player.hp <= 0) {
+    if (gameState.classType === 'Warrior' && !gameState.warriorRevived && getClassUnlockedArray('Warrior')[2]) {
+      gameState.warriorRevived = true;
+      gameState.player.hp = Math.max(1, Math.round(gameState.player.maxHp * 0.20));
+      gameState.enemies.forEach(e => {
+        if (e.hp > 0) dealDamageToEnemy(e, 10, false, '#ef4444');
+      });
+      showToast('🔥 SECOND WIND ACTIVATED! Revived & dealt 10 AoE DMG!', 'success');
+      updateBattleUI();
+      if (gameState.enemies.every(e => e.hp <= 0)) {
+        return checkPostActionVictoryOrDefeat();
+      }
+      return false;
+    }
 
- gameState.hand.forEach(cObj => gameState.discardPile.push(cObj.id));
- gameState.hand = [];
- drawCardsForTurn(false);
+    gameState.combatOver = true;
+    gameState.isExecuting = false;
+    setTimeout(() => {
+      alert('💀 DEFEAT! Your hero has fallen in combat.');
+      navigateTo('CLASS_SELECT');
+    }, 450);
+    return true;
+  }
 
- gameState.currentEnergy = gameState.maxEnergy + (gameState.nextTurnBonusEnergy || 0) + energyCarryover;
- gameState.nextTurnBonusEnergy = 0;
- gameState.abilityUsedThisTurn = false;
- gameState.scrapsUsedThisTurn = 0;
- gameState.manaSpentThisTurn = 0;
- gameState.attackDiscountThisTurn = 0;
- gameState.nextScrapBonusEnergy = 0;
- gameState.nextTomeEchoThisTurn = false;
- gameState.chronoEchoPlayedThisTurn = false;
- gameState.spentHpThisTurn = false;
- gameState.turretBonusVolleysThisTurn = 0;
- gameState.reactiveArmorActive = false;
- gameState.reflectDamageThisTurn = 0;
- gameState.intimidateMultiplier = 1.0;
+  if (gameState.enemies.every(e => e.hp <= 0)) {
+    gameState.combatOver = true;
+    gameState.isExecuting = false;
 
- renderUI();
+    const isBoss = gameState.boardNode >= gameState.maxNodes;
+    const goldReward = isBoss ? (gameState.stage >= 2 ? 95 : 65) : (gameState.stage >= 2 ? 35 : 25);
+    gameState.gold += goldReward;
+
+    // Relic: Syndicate Signet (+8g and +$8 Cash per tier after every combat)
+    if ((gameState.relics.SYNDICATE_SIGNET || 0) > 0) {
+      const sigTier = gameState.relics.SYNDICATE_SIGNET;
+      gameState.gold += 8 * sigTier;
+      if (gameState.classType === 'Mob Boss') {
+        gainSyndicateCash(8 * sigTier);
+      }
+    }
+
+    if (gameState.classType === 'Mob Boss') {
+      const cashReward = isBoss ? 35 : 15;
+      const repReward = isBoss ? 10 : 5;
+      gainSyndicateCash(cashReward);
+      gainNotoriety(repReward);
+      showToast(`🏆 VICTORY! +${goldReward}g, +$${cashReward} Cash & +${repReward} ★ Notoriety!`, 'success');
+    } else {
+      showToast(`🏆 VICTORY! +${goldReward}g Gold earned!`, 'success');
+    }
+
+    setTimeout(() => {
+      openVictoryCardDraft(isBoss);
+    }, 550);
+    return true;
+  }
+
+  return false;
 }
