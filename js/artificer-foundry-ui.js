@@ -1,5 +1,9 @@
-// --- ARTIFICER FOUNDRY UI: GUARANTEED STAGE OVERLAY MODELS & SCHEMATICS ---
+// --- ARTIFICER FOUNDRY UI: 6-CONSTRUCT STAGE MODELS & SCHEMATICS ---
 (function () {
+  const origRenderArtificerTurrets = typeof window.renderArtificerTurrets === 'function'
+    ? window.renderArtificerTurrets
+    : null;
+
   if (!document.getElementById('artificer-foundry-css')) {
     const style = document.createElement('style');
     style.id = 'artificer-foundry-css';
@@ -10,13 +14,13 @@
         width: 100%;
         height: 100%;
         pointer-events: none;
-        z-index: 12;
+        z-index: 15;
       }
       #artificer-stage-rack {
         position: absolute;
         top: 10px;
         left: 12px;
-        z-index: 24;
+        z-index: 25;
         display: none;
         align-items: center;
         gap: 6px;
@@ -120,18 +124,6 @@
         font-weight: 800;
         cursor: pointer;
       }
-      .af-filter-tabs { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
-      .af-tab {
-        background: rgba(15, 23, 42, 0.85);
-        border: 1px solid rgba(148, 163, 184, 0.3);
-        color: #cbd5e1;
-        font-size: 0.74rem;
-        font-weight: 800;
-        padding: 4px 11px;
-        border-radius: 999px;
-        cursor: pointer;
-      }
-      .af-tab.active { background: #0284c7; border-color: #7dd3fc; color: #ffffff; }
       .af-schematics-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -147,7 +139,6 @@
         justify-content: space-between;
         gap: 7px;
       }
-      .af-bp-card.locked { border-color: rgba(100, 116, 139, 0.45); opacity: 0.78; }
       .af-bp-top { display: flex; align-items: center; justify-content: space-between; }
       .af-bp-badge {
         font-size: 0.62rem;
@@ -158,235 +149,60 @@
         background: rgba(56, 189, 248, 0.18);
         color: #7dd3fc;
       }
-      .af-bp-cost { font-size: 0.72rem; font-weight: 800; color: #fde047; }
       .af-bp-name { font-size: 0.88rem; font-weight: 900; color: #f8fafc; margin-top: 3px; }
-      .af-card-req {
-        font-size: 0.69rem;
-        font-weight: 700;
-        padding: 4px 8px;
-        border-radius: 6px;
-      }
-      .af-card-req.req-locked {
-        background: rgba(239, 68, 68, 0.12);
-        border: 1px dashed rgba(248, 113, 113, 0.45);
-        color: #fca5a5;
-      }
-      .af-card-req.req-unlocked {
-        background: rgba(34, 197, 94, 0.14);
-        border: 1px solid rgba(74, 222, 128, 0.45);
-        color: #86efac;
-      }
       .af-bp-desc { font-size: 0.75rem; color: #cbd5e1; line-height: 1.38; }
-      .af-bp-overcharge {
-        font-size: 0.70rem;
-        color: #fde047;
-        background: rgba(250, 204, 21, 0.09);
-        border-left: 2px solid #facc15;
-        padding: 4px 7px;
-      }
-      .af-bp-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 2px; }
       .af-bp-status { font-size: 0.68rem; font-weight: 800; color: #94a3b8; }
       .af-bp-status.deployed { color: #4ade80; }
     `;
     document.head.appendChild(style);
   }
 
-  // =========================================================================
-  // 1. SCHEMATICS DATA & MULTI-SOURCE CONSTRUCT / DRONE DETECTOR
-  // =========================================================================
-  const DEFAULT_FOUNDRY_SCHEMATICS = [
-    {
-      id: 'auto_turret',
-      name: 'Auto-Turret Drone',
-      cardForm: 'Auto-Turret / Sentry Card',
-      keywords: ['auto-turret', 'auto turret', 'drone', 'sentry', 'gatling', 'turret'],
-      archetype: 'turret',
-      icon: '🔫',
-      cost: 2,
-      desc: 'End of Turn: Fires high-velocity rounds for 6 DMG to front enemy.',
-      overcharge: 'Overcharge: Fires twice (2x 6 DMG) & applies 1 Vulnerable.'
-    },
-    {
-      id: 'tesla_coil',
-      name: 'Arc Tesla Coil',
-      cardForm: 'Arc Tesla / Shock Coil Card',
-      keywords: ['tesla', 'arc coil', 'shock turret', 'volt turret', 'lightning'],
-      archetype: 'turret',
-      icon: '⚡',
-      cost: 3,
-      desc: 'End of Turn: Zaps ALL enemies for 5 Shock DMG (ignores 50% Shield).',
-      overcharge: 'Overcharge: Chain lightning hits for 9 DMG & grants +1 Energy next turn.'
-    },
-    {
-      id: 'aegis_mech',
-      name: 'Aegis Vanguard Mech',
-      cardForm: 'Aegis / Vanguard Mech Card',
-      keywords: ['aegis mech', 'vanguard', 'guard mech', 'shield mech', 'exo'],
-      archetype: 'mech',
-      icon: '🤖',
-      cost: 3,
-      hp: 24,
-      desc: 'Frontline Mech (24 HP): Intercepts 50% incoming attack DMG & slams for 5 DMG.',
-      overcharge: 'Overcharge: Gains +12 Armor Plating & retaliates for 10 DMG when hit.'
-    },
-    {
-      id: 'siege_walker',
-      name: 'Hellfire Siege Walker',
-      cardForm: 'Siege Walker / Hellfire Mech Card',
-      keywords: ['siege', 'walker', 'hellfire', 'mortar', 'juggernaut', 'titan'],
-      archetype: 'mech',
-      icon: '🦾',
-      cost: 4,
-      hp: 30,
-      desc: 'Heavy Mech (30 HP): Launches twin mortar shells for 11 AoE DMG each turn.',
-      overcharge: 'Overcharge: Triggers Siege Barrage immediately (18 DMG).'
-    },
-    {
-      id: 'scrap_foundry',
-      name: 'Automated Scrap Foundry',
-      cardForm: 'Scrap Foundry / Fabricator Card',
-      keywords: ['scrap foundry', 'foundry', 'fabricator', 'salvage bay', 'generator'],
-      archetype: 'building',
-      icon: '🏭',
-      cost: 2,
-      desc: 'Building: Generates +1 ⚙️ Part & +4 Armor Shield at the start of every turn.',
-      overcharge: 'Overcharge: Immediately fabricates +2 ⚙️ Parts & draws 1 card.'
-    },
-    {
-      id: 'aegis_pylon',
-      name: 'Chrono-Shield Pylon',
-      cardForm: 'Shield Pylon / Barrier Tower Card',
-      keywords: ['pylon', 'chrono-shield', 'barrier tower', 'shield tower', 'bunker'],
-      archetype: 'building',
-      icon: '🗼',
-      cost: 3,
-      desc: 'Building: Projects a barrier granting +8 Shield & 25% Retaliation Thorns.',
-      overcharge: 'Overcharge: Pulses +16 Shield to Hero & repairs all Mechs for +8 HP.'
-    }
-  ];
-
-  let domObservedDrones = [];
-
   function classifyConstruct(item) {
     if (!item) return 'turret';
-    const raw = `${item.archetype || ''} ${item.category || ''} ${item.type || ''} ${item.name || ''}`.toLowerCase();
-    if (/mech|walker|golem|titan|exo|suit|vanguard|juggernaut|dreadnought/.test(raw)) return 'mech';
-    if (/building|foundry|pylon|generator|reactor|bay|forge|bunker|tower|wall/.test(raw)) return 'building';
+    const raw = `${item.type || ''} ${item.name || ''}`.toLowerCase();
+    if (/goliath|mech/.test(raw)) return 'mech';
+    if (/aegis|barrier|pylon|foundry/.test(raw)) return 'building';
     return 'turret';
   }
 
-  function isInBattleScreen() {
+  // Uses actual DOM visibility instead of assuming .active class
+  function isBattleVisible() {
     const battleEl = document.getElementById('screen-battle');
-    if (battleEl && battleEl.classList.contains('active')) return true;
-    return typeof gameState !== 'undefined' && gameState && gameState.screen === 'BATTLE';
-  }
-
-  function isArtificerActive() {
-    if (typeof gameState !== 'undefined' && gameState) {
-      const clsStr = `${gameState.classType || ''} ${gameState.heroClass || ''} ${gameState.class || ''} ${gameState.selectedClass || ''} ${(gameState.player && gameState.player.classType) || ''}`.toLowerCase();
-      if (clsStr.includes('artificer')) return true;
+    if (battleEl && battleEl.offsetParent !== null && getComputedStyle(battleEl).display !== 'none') {
+      return true;
     }
-    if (document.getElementById('ui-parts') || document.getElementById('ui-parts-badge')) return true;
-    const btns = Array.from(document.querySelectorAll('button'));
-    if (btns.some(b => /scrap\s+drone|deploy/i.test(b.textContent || ''))) return true;
-    return getActiveConstructs().length > 0;
+    return typeof gameState !== 'undefined' && gameState && !gameState.combatOver && Array.isArray(gameState.enemies) && gameState.enemies.length > 0;
   }
 
   function getActiveConstructs() {
-    // 1. Check array pools on gameState / window
-    const arrayCandidates = [];
-    if (typeof gameState !== 'undefined' && gameState) {
-      arrayCandidates.push(
-        gameState.drones,
-        gameState.activeDrones,
-        gameState.turrets,
-        gameState.activeTurrets,
-        gameState.constructs,
-        gameState.activeConstructs,
-        gameState.summons,
-        gameState.artificerTurrets,
-        gameState.player && gameState.player.drones,
-        gameState.player && gameState.player.turrets,
-        gameState.player && gameState.player.constructs
-      );
+    if (typeof gameState !== 'undefined' && gameState && Array.isArray(gameState.turrets)) {
+      return gameState.turrets.filter(t => t && (typeof t.hp !== 'number' || t.hp > 0));
     }
-    ['drones', 'activeDrones', 'turrets', 'activeTurrets', 'constructs'].forEach(k => {
-      if (Array.isArray(window[k])) arrayCandidates.push(window[k]);
-    });
-
-    for (const list of arrayCandidates) {
-      if (Array.isArray(list) && list.length > 0) {
-        return list.filter(item => item && (typeof item.hp !== 'number' || item.hp > 0));
-      }
-    }
-
-    // 2. Check numeric counters (e.g., gameState.drones = 2 or gameState.droneCount = 2)
-    if (typeof gameState !== 'undefined' && gameState) {
-      const numKeys = ['drones', 'droneCount', 'activeDrones', 'turrets', 'turretCount', 'constructCount'];
-      for (const nk of numKeys) {
-        const val = gameState[nk] ?? (gameState.player && gameState.player[nk]);
-        if (typeof val === 'number' && val > 0) {
-          return Array.from({ length: Math.min(val, 8) }, (_, i) => ({
-            id: `auto_turret_${i}`,
-            name: `Auto-Turret Drone #${i + 1}`,
-            archetype: 'turret',
-            dmg: 6
-          }));
-        }
-      }
-    }
-
-    // 3. Read live count directly from "Scrap Drone (2/3)" button in the DOM
-    const scrapBtn = Array.from(document.querySelectorAll('#screen-battle button, button')).find(b =>
-      /scrap\s+(?:drone|turret|construct)/i.test(b.textContent || '')
-    );
-    if (scrapBtn) {
-      const match = (scrapBtn.textContent || '').match(/\((\d+)(?:\s*\/\s*\d+)?\)/);
-      if (match) {
-        const count = parseInt(match[1], 10) || 0;
-        if (count > 0) {
-          return Array.from({ length: Math.min(count, 8) }, (_, i) => (
-            domObservedDrones[i] || {
-              id: `auto_turret_${i}`,
-              name: `Auto-Turret Drone #${i + 1}`,
-              archetype: 'turret',
-              dmg: 6
-            }
-          ));
-        } else {
-          domObservedDrones = [];
-        }
-      }
-    }
-
-    // 4. Fallback to toast-tracked constructs
-    if (domObservedDrones.length > 0) {
-      return domObservedDrones;
-    }
-
     return [];
   }
 
   window.__getArtificerConstructs = getActiveConstructs;
 
   // =========================================================================
-  // 2. DEDICATED HIGH-DPI 2D CANVAS STAGE RENDERER (WORKS IN ALL THEMES)
+  // 2D HIGH-DPI STAGE OVERLAY RENDERER FOR ALL 6 CONSTRUCT TYPES
   // =========================================================================
   let overlayCanvas = null;
   let overlayCtx = null;
-  let tracerBolts = [];
   window.__artificerStageCoords = [];
 
   function findBattleStageHost() {
+    const pixiEl = document.getElementById('pixi-container');
+    if (pixiEl && pixiEl.offsetParent !== null) {
+      if (getComputedStyle(pixiEl).position === 'static') pixiEl.style.position = 'relative';
+      return pixiEl;
+    }
     const canvas = document.querySelector('#screen-battle canvas') || document.querySelector('canvas');
     if (canvas && canvas.parentElement) {
       const host = canvas.parentElement;
-      if (getComputedStyle(host).position === 'static') {
-        host.style.position = 'relative';
-      }
+      if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
       return host;
     }
-    return document.querySelector('#screen-battle .battle-stage-wrapper') || document.getElementById('pixi-container');
+    return document.querySelector('#screen-battle .battle-stage-wrapper');
   }
 
   function ensureOverlayCanvas() {
@@ -413,187 +229,151 @@
     return { ctx: overlayCtx, w: rect.width, h: rect.height, dpr };
   }
 
-  function drawDrone2D(ctx, x, y, index, isOvercharged, t) {
-    const primary = isOvercharged ? '#facc15' : '#38bdf8';
-    const glow = isOvercharged ? 'rgba(250, 204, 21, 0.45)' : 'rgba(56, 189, 248, 0.45)';
+  function drawConstructModel(ctx, x, y, item, index, t) {
+    const type = (item && item.type) || 'auto_turret';
+    const label = (item && item.name) ? item.name.split(' ')[0].toUpperCase() : 'DRONE';
 
     ctx.save();
     ctx.translate(x, y);
 
-    // Subtle energy tether arc down toward hero
-    ctx.strokeStyle = 'rgba(56, 189, 248, 0.18)';
-    ctx.lineWidth = 1.2;
-    ctx.setLineDash([3, 4]);
-    ctx.beginPath();
-    ctx.moveTo(0, 10);
-    ctx.lineTo(-22, 34);
-    ctx.stroke();
-    ctx.setLineDash([]);
+    if (type === 'goliath_mech') {
+      // Heavy Armored Goliath Mech
+      ctx.fillStyle = 'rgba(0,0,0,0.45)';
+      ctx.beginPath();
+      ctx.ellipse(0, 22, 18, 5, 0, 0, Math.PI * 2);
+      ctx.fill();
 
-    // Rotor arms
-    ctx.strokeStyle = '#94a3b8';
-    ctx.lineWidth = 2.2;
-    ctx.beginPath();
-    ctx.moveTo(-15, -8);
-    ctx.lineTo(15, -8);
-    ctx.stroke();
+      ctx.strokeStyle = '#94a3b8';
+      ctx.lineWidth = 3.5;
+      ctx.beginPath();
+      ctx.moveTo(-7, 6); ctx.lineTo(-9, 20);
+      ctx.moveTo(7, 6);  ctx.lineTo(9, 20);
+      ctx.stroke();
 
-    // Spinning rotor blades
-    const bladeW = 7 + Math.sin(t * 18 + index) * 3.5;
-    ctx.fillStyle = 'rgba(186, 230, 253, 0.72)';
-    ctx.beginPath();
-    ctx.ellipse(-15, -10, Math.abs(bladeW), 2.2, 0, 0, Math.PI * 2);
-    ctx.ellipse(15, -10, Math.abs(bladeW), 2.2, 0, 0, Math.PI * 2);
-    ctx.fill();
+      ctx.fillStyle = '#1e293b';
+      ctx.strokeStyle = '#eab308';
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.roundRect(-14, -14, 28, 22, 5);
+      ctx.fill();
+      ctx.stroke();
 
-    // Armored hexagonal chassis
-    ctx.shadowColor = glow;
-    ctx.shadowBlur = 10;
-    ctx.fillStyle = '#0f172a';
-    ctx.strokeStyle = primary;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(-12, -2);
-    ctx.lineTo(-7, -8);
-    ctx.lineTo(7, -8);
-    ctx.lineTo(12, -2);
-    ctx.lineTo(8, 6);
-    ctx.lineTo(-8, 6);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    ctx.shadowBlur = 0;
+      ctx.fillStyle = '#ef4444';
+      ctx.fillRect(-6, -9, 14, 4);
+    } else if (type === 'aegis_barrier') {
+      // Aegis Force-Barrier Pylon
+      ctx.fillStyle = '#064e3b';
+      ctx.strokeStyle = '#10b981';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-12, 18); ctx.lineTo(-8, -14); ctx.lineTo(8, -14); ctx.lineTo(12, 18);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
 
-    // Twin underslung auto-cannon barrels
-    ctx.fillStyle = primary;
-    ctx.fillRect(6, 1, 14, 3);
-    ctx.fillRect(6, 5, 11, 2.5);
+      ctx.strokeStyle = 'rgba(52, 211, 153, 0.65)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(6, 0, 20, -1.0, 1.0);
+      ctx.stroke();
+    } else if (type === 'arc_tesla') {
+      // Arc Tesla Coil
+      ctx.fillStyle = '#0f172a';
+      ctx.strokeStyle = '#818cf8';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-10, 10); ctx.lineTo(-5, -12); ctx.lineTo(5, -12); ctx.lineTo(10, 10);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
 
-    // Glowing cyan sensor core
-    ctx.fillStyle = '#e0f2fe';
-    ctx.beginPath();
-    ctx.arc(2, -1.5, 3, 0, Math.PI * 2);
-    ctx.fill();
+      ctx.fillStyle = '#c7d2fe';
+      ctx.beginPath();
+      ctx.arc(0, -15, 4.5, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (type === 'heavy_rail') {
+      // Heavy Railgun Turret
+      ctx.fillStyle = '#082f49';
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.roundRect(-12, -7, 22, 13, 4);
+      ctx.fill();
+      ctx.stroke();
 
-    // Compact label pill above drone
-    ctx.font = '800 9.5px system-ui, -apple-system, sans-serif';
+      ctx.fillStyle = '#7dd3fc';
+      ctx.fillRect(8, -6, 17, 2.5);
+      ctx.fillRect(8, 1, 17, 2.5);
+    } else if (type === 'inferno_flame') {
+      // Inferno Flamethrower Turret
+      ctx.fillStyle = '#431407';
+      ctx.strokeStyle = '#f97316';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.roundRect(-12, -8, 22, 15, 6);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = '#fb923c';
+      ctx.fillRect(9, -5, 12, 8);
+    } else {
+      // Auto-Turret Drone (Hovering Quad-Rotor)
+      ctx.strokeStyle = '#94a3b8';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-14, -8); ctx.lineTo(14, -8);
+      ctx.stroke();
+
+      const bladeW = 7 + Math.sin(t * 18 + index) * 3.5;
+      ctx.fillStyle = 'rgba(186, 230, 253, 0.72)';
+      ctx.beginPath();
+      ctx.ellipse(-14, -10, Math.abs(bladeW), 2.2, 0, 0, Math.PI * 2);
+      ctx.ellipse(14, -10, Math.abs(bladeW), 2.2, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#0f172a';
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-11, -2); ctx.lineTo(-6, -8); ctx.lineTo(6, -8);
+      ctx.lineTo(11, -2); ctx.lineTo(7, 5); ctx.lineTo(-7, 5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = '#f59e0b';
+      ctx.fillRect(6, 1, 13, 3);
+      ctx.fillRect(6, 5, 10, 2.5);
+
+      ctx.fillStyle = '#fef08a';
+      ctx.beginPath();
+      ctx.arc(2, -1.5, 2.8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // HP Bar beneath construct
+    if (typeof item.hp === 'number') {
+      const maxHp = item.maxHp || Math.max(item.hp, 10);
+      const pct = Math.max(0, Math.min(1, item.hp / maxHp));
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+      ctx.fillRect(-14, 12, 28, 4);
+      ctx.fillStyle = '#4ade80';
+      ctx.fillRect(-14, 12, 28 * pct, 4);
+    }
+
+    // Label above construct
+    ctx.font = '800 9px system-ui, -apple-system, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillStyle = '#020617';
-    ctx.fillText(`DRONE #${index + 1}`, 1, -17);
-    ctx.fillStyle = primary;
-    ctx.fillText(`DRONE #${index + 1}`, 0, -18);
+    ctx.fillText(label, 1, -17);
+    ctx.fillStyle = '#fde047';
+    ctx.fillText(label, 0, -18);
 
     ctx.restore();
   }
 
-  function drawMech2D(ctx, x, y, item, isOvercharged) {
-    const primary = isOvercharged ? '#facc15' : '#f59e0b';
-    ctx.save();
-    ctx.translate(x, y);
-
-    // Ground shadow
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
-    ctx.beginPath();
-    ctx.ellipse(0, 22, 18, 5, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Mechanical legs
-    ctx.strokeStyle = '#94a3b8';
-    ctx.lineWidth = 3.5;
-    ctx.beginPath();
-    ctx.moveTo(-7, 6); ctx.lineTo(-9, 20);
-    ctx.moveTo(7, 6);  ctx.lineTo(9, 20);
-    ctx.stroke();
-
-    // Armored torso
-    ctx.fillStyle = '#1e293b';
-    ctx.strokeStyle = primary;
-    ctx.lineWidth = 2.2;
-    ctx.beginPath();
-    ctx.roundRect(-14, -14, 26, 22, 5);
-    ctx.fill();
-    ctx.stroke();
-
-    // Glowing visor
-    ctx.fillStyle = '#38bdf8';
-    ctx.fillRect(-5, -9, 12, 4);
-
-    // Front Aegis energy shield
-    ctx.fillStyle = 'rgba(2, 132, 199, 0.85)';
-    ctx.strokeStyle = '#7dd3fc';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.roundRect(11, -14, 7, 26, 3);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.font = '800 9.5px system-ui, -apple-system, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#fcd34d';
-    ctx.fillText((item.name || 'MECH').split(' ')[0].toUpperCase(), 0, -21);
-
-    ctx.restore();
-  }
-
-  function drawBuilding2D(ctx, x, y, item, isOvercharged) {
-    const primary = isOvercharged ? '#facc15' : '#10b981';
-    ctx.save();
-    ctx.translate(x, y);
-
-    ctx.fillStyle = '#064e3b';
-    ctx.strokeStyle = primary;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.rect(-15, -10, 30, 26);
-    ctx.fill();
-    ctx.stroke();
-
-    // Smokestack / crystal spire
-    ctx.fillStyle = '#a7f3d0';
-    ctx.beginPath();
-    ctx.moveTo(0, -24);
-    ctx.lineTo(6, -12);
-    ctx.lineTo(-6, -12);
-    ctx.closePath();
-    ctx.fill();
-
-    ctx.font = '800 9.5px system-ui, -apple-system, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#6ee7b7';
-    ctx.fillText((item.name || 'FOUNDRY').split(' ')[0].toUpperCase(), 0, -29);
-
-    ctx.restore();
-  }
-
-  function spawnDroneVolleyTracers(w, h) {
-    const coords = window.__artificerStageCoords || [];
-    if (!coords.length) return;
-    const targetX = w * 0.78;
-    const targetY = h * 0.56;
-
-    coords.forEach((c, idx) => {
-      for (let b = 0; b < 2; b++) {
-        tracerBolts.push({
-          x: c.x + 16,
-          y: c.y + 2,
-          tx: targetX + (Math.random() - 0.5) * 18,
-          ty: targetY + (Math.random() - 0.5) * 18,
-          progress: -(idx * 0.18 + b * 0.14),
-          color: c.archetype === 'mech' ? '#f59e0b' : '#38bdf8'
-        });
-      }
-    });
-  }
-
-  function renderConstructsFrame() {
-    requestAnimationFrame(renderConstructsFrame);
-
-    if (!isInBattleScreen()) {
-      if (overlayCtx && overlayCanvas) {
-        overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-      }
-      return;
-    }
+  function renderConstructsLoop() {
+    requestAnimationFrame(renderConstructsLoop);
 
     const setup = ensureOverlayCanvas();
     if (!setup || !setup.ctx) return;
@@ -602,6 +382,11 @@
     ctx.save();
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, w, h);
+
+    if (!isBattleVisible()) {
+      ctx.restore();
+      return;
+    }
 
     const constructs = getActiveConstructs();
     window.__artificerStageCoords = [];
@@ -615,37 +400,18 @@
         ? playerContainer.y
         : Math.round(h * 0.58);
 
-      let turretIdx = 0;
-      let mechIdx = 0;
-      let buildingIdx = 0;
-
       constructs.forEach((item, idx) => {
         const kind = classifyConstruct(item);
-        const isOvercharged = Boolean(item && (item.overcharged || item.upgraded || (item.level && item.level > 1)));
-        let drawX = heroX;
-        let drawY = heroY;
+        const col = idx % 2;
+        const row = Math.floor(idx / 2);
+        const drawX = Math.min(w * 0.48, heroX + 48 + col * 48);
+        const drawY = Math.max(32, Math.min(h - 26, heroY - 38 + row * 38)) + Math.sin(t + idx * 1.1) * 2.6;
 
-        if (kind === 'mech') {
-          drawX = Math.min(w * 0.48, heroX + 64 + mechIdx * 44);
-          drawY = Math.min(h - 28, heroY + 6 - mechIdx * 18) + Math.sin(t + idx) * 1.5;
-          drawMech2D(ctx, drawX, drawY, item, isOvercharged);
-          mechIdx++;
-        } else if (kind === 'building') {
-          drawX = Math.max(30, heroX - 54 - buildingIdx * 36);
-          drawY = Math.min(h - 28, heroY + 4 - buildingIdx * 24);
-          drawBuilding2D(ctx, drawX, drawY, item, isOvercharged);
-          buildingIdx++;
-        } else {
-          // Hover in an arc above and in front of the hero
-          drawX = Math.min(w * 0.48, heroX + 46 + (turretIdx % 3) * 48);
-          drawY = Math.max(34, heroY - 46 - Math.floor(turretIdx / 3) * 34) + Math.sin(t + idx * 1.1) * 3.2;
-          drawDrone2D(ctx, drawX, drawY, turretIdx, isOvercharged, t);
-          turretIdx++;
-        }
+        drawConstructModel(ctx, drawX, drawY, item, idx, t);
 
         window.__artificerStageCoords.push({
           index: idx,
-          name: (item && item.name) || kind,
+          name: item.name || item.type,
           archetype: kind,
           x: drawX,
           y: drawY
@@ -653,50 +419,20 @@
       });
     }
 
-    // Animate laser/bullet tracers when drones fire
-    for (let i = tracerBolts.length - 1; i >= 0; i--) {
-      const bolt = tracerBolts[i];
-      bolt.progress += 0.085;
-      if (bolt.progress < 0) continue;
-      if (bolt.progress >= 1) {
-        tracerBolts.splice(i, 1);
-        continue;
-      }
-      const bx = bolt.x + (bolt.tx - bolt.x) * bolt.progress;
-      const by = bolt.y + (bolt.ty - bolt.y) * bolt.progress;
-      ctx.strokeStyle = bolt.color;
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(bx - 12, by);
-      ctx.lineTo(bx + 4, by);
-      ctx.stroke();
-    }
-
     ctx.restore();
   }
 
   window.renderArtificerTurrets = function () {
+    if (origRenderArtificerTurrets) {
+      try { origRenderArtificerTurrets.apply(this, arguments); } catch (e) {}
+    }
     ensureOverlayCanvas();
+    updateArtificerFoundryHUD();
   };
 
   // =========================================================================
-  // 3. SCHEMATICS MODAL & HUD RACK
+  // SCHEMATICS MODAL & TOP-LEFT STAGE RACK
   // =========================================================================
-  let currentFilter = 'all';
-
-  function getPartsInfo() {
-    if (typeof gameState !== 'undefined' && gameState) {
-      if (typeof gameState.parts === 'number') return { current: gameState.parts, max: gameState.maxParts || 6 };
-      if (typeof gameState.scrapParts === 'number') return { current: gameState.scrapParts, max: gameState.maxScrapParts || 6 };
-    }
-    const el = document.getElementById('ui-parts');
-    if (el && el.textContent.includes('/')) {
-      const [c, m] = el.textContent.split('/').map(n => parseInt(n, 10) || 0);
-      return { current: c, max: m || 6 };
-    }
-    return { current: 0, max: 6 };
-  }
-
   function ensureFoundryDOM() {
     const host = findBattleStageHost();
     if (host && !document.getElementById('artificer-stage-rack')) {
@@ -718,13 +454,7 @@
             </div>
           </div>
           <div class="af-panel-subtitle">
-            Obtain a construct's <strong>Card Form</strong> (via Starter Deck, Card Rewards, or Shop) to unlock its Foundry Schematic.
-          </div>
-          <div class="af-filter-tabs" id="af-filter-tabs">
-            <button class="af-tab active" data-filter="all">All Blueprints (6)</button>
-            <button class="af-tab" data-filter="turret">🔫 Turrets / Drones</button>
-            <button class="af-tab" data-filter="mech">🤖 Mechs</button>
-            <button class="af-tab" data-filter="building">🏭 Buildings</button>
+            Play Construct Schematic Tome cards in battle to deploy specialized Turrets, Mechs, and Force-Barriers into your Foundry Bays.
           </div>
           <div class="af-schematics-grid" id="af-schematics-grid"></div>
         </div>
@@ -737,62 +467,41 @@
       document.getElementById('af-close-modal').addEventListener('click', () => {
         modal.classList.remove('open');
       });
-      document.getElementById('af-filter-tabs').addEventListener('click', (e) => {
-        const btn = e.target.closest('.af-tab');
-        if (!btn) return;
-        currentFilter = btn.dataset.filter || 'all';
-        document.querySelectorAll('#af-filter-tabs .af-tab').forEach(t => t.classList.remove('active'));
-        btn.classList.add('active');
-        renderSchematicsModalGrid();
-      });
     }
   }
 
   function openSchematicsModal() {
     ensureFoundryDOM();
-    renderSchematicsModalGrid();
-    document.getElementById('modal-artificer-schematics').classList.add('open');
-  }
-
-  function renderSchematicsModalGrid() {
     const grid = document.getElementById('af-schematics-grid');
-    if (!grid) return;
-
-    const parts = getPartsInfo();
     const partsPill = document.getElementById('af-modal-parts');
-    if (partsPill) partsPill.textContent = `⚙️ Parts: ${parts.current}/${parts.max}`;
+    if (partsPill && typeof gameState !== 'undefined' && gameState && gameState.player) {
+      partsPill.textContent = `⚙️ Parts: ${gameState.player.parts || 0}/6`;
+    }
 
+    const catalog = (typeof CONSTRUCT_CATALOG !== 'undefined' && CONSTRUCT_CATALOG) ? Object.values(CONSTRUCT_CATALOG) : [];
     const active = getActiveConstructs();
-    const roster = DEFAULT_FOUNDRY_SCHEMATICS.filter(bp => currentFilter === 'all' || bp.archetype === currentFilter);
 
-    grid.innerHTML = roster.map(bp => {
-      const deployedCount = active.filter(c =>
-        c && String(c.name || '').toLowerCase().includes(bp.name.split(' ')[0].toLowerCase())
-      ).length;
-      const unlocked = bp.id === 'auto_turret' || deployedCount > 0;
-
-      return `
-        <div class="af-bp-card ${unlocked ? '' : 'locked'}">
-          <div>
-            <div class="af-bp-top">
-              <span class="af-bp-badge">${bp.icon} ${bp.archetype}</span>
-              <span class="af-bp-cost">⚙️ ${bp.cost} Parts</span>
+    if (grid) {
+      grid.innerHTML = catalog.map(spec => {
+        const count = active.filter(c => c.type === spec.type).length;
+        return `
+          <div class="af-bp-card">
+            <div>
+              <div class="af-bp-top">
+                <span class="af-bp-badge">${spec.defaultHp || 10} HP</span>
+              </div>
+              <div class="af-bp-name">${spec.name}</div>
             </div>
-            <div class="af-bp-name">${bp.name}</div>
+            <div class="af-bp-desc">${spec.desc || ''}</div>
+            <div class="af-bp-status ${count > 0 ? 'deployed' : ''}">
+              ${count > 0 ? `● ${count} Deployed on Field` : '○ Ready in Schematic Deck'}
+            </div>
           </div>
-          <div class="af-card-req ${unlocked ? 'req-unlocked' : 'req-locked'}">
-            ${unlocked ? '✅ Schematic Active' : `🔒 Obtain <strong>${bp.cardForm}</strong>`}
-          </div>
-          <div class="af-bp-desc">${bp.desc}</div>
-          <div class="af-bp-overcharge">⚡ ${bp.overcharge}</div>
-          <div class="af-bp-footer">
-            <span class="af-bp-status ${deployedCount > 0 ? 'deployed' : ''}">
-              ${deployedCount > 0 ? `● ${deployedCount} Deployed on Field` : '○ Ready'}
-            </span>
-          </div>
-        </div>
-      `;
-    }).join('');
+        `;
+      }).join('');
+    }
+
+    document.getElementById('modal-artificer-schematics').classList.add('open');
   }
 
   function updateArtificerFoundryHUD() {
@@ -800,30 +509,31 @@
     const rack = document.getElementById('artificer-stage-rack');
     if (!rack) return;
 
-    if (!isInBattleScreen() || !isArtificerActive()) {
+    const isArtificer = typeof gameState !== 'undefined' && gameState &&
+      (gameState.classType === 'Artificer' || getActiveConstructs().length > 0);
+
+    if (!isBattleVisible() || !isArtificer) {
       rack.classList.remove('visible');
       return;
     }
 
     rack.classList.add('visible');
     const constructs = getActiveConstructs();
+    const maxBays = typeof getMaxTurrets === 'function' ? getMaxTurrets() : 3;
 
     let html = `
-      <button class="af-btn-schematics" id="af-open-rack-btn" title="View Foundry Schematics">
-        📐 Schematics (${constructs.length} Active)
+      <button class="af-btn-schematics" id="af-open-rack-btn">
+        📐 Bays (${constructs.length}/${maxBays})
       </button>
     `;
 
-    constructs.forEach((c) => {
+    constructs.forEach(c => {
       const kind = classifyConstruct(c);
-      const icon = kind === 'mech' ? '🤖' : (kind === 'building' ? '🏭' : '🔫');
-      const name = c && c.name ? c.name : 'Auto-Turret Drone';
-      const stat = kind === 'mech' ? `${c.hp || 24}♥` : (kind === 'building' ? '+1⚙️/t' : `${c.dmg || 6} DMG`);
-
+      const icon = kind === 'mech' ? '🤖' : (kind === 'building' ? '🛡️' : '🔫');
       html += `
         <div class="af-construct-chip type-${kind}">
-          <span>${icon} ${name}</span>
-          <span class="af-chip-stat">${stat}</span>
+          <span>${icon} ${c.name || 'Construct'}</span>
+          <span class="af-chip-stat">${c.hp}/${c.maxHp || c.hp}♥</span>
         </div>
       `;
     });
@@ -833,49 +543,16 @@
     if (openBtn) openBtn.addEventListener('click', openSchematicsModal);
   }
 
-  // Listen to deployment / scrap toasts and end-turn firing
-  function installHooks() {
+  function initFoundryUI() {
     ensureFoundryDOM();
     ensureOverlayCanvas();
-    requestAnimationFrame(renderConstructsFrame);
-
-    if (typeof window.showToast === 'function' && !window.showToast.__afDroneHook) {
-      const origToast = window.showToast;
-      const wrapped = function (msg, ...rest) {
-        const text = String(msg || '');
-        const deployMatch = text.match(/Deployed\s+(.+?)\s*\((\d+)\s*\/\s*(\d+)\)/i);
-        if (deployMatch) {
-          const count = parseInt(deployMatch[2], 10) || 1;
-          domObservedDrones = Array.from({ length: count }, (_, i) => ({
-            id: `auto_turret_${i}`,
-            name: `${deployMatch[1]} #${i + 1}`,
-            archetype: classifyConstruct({ name: deployMatch[1] }),
-            dmg: 6
-          }));
-        } else if (/scrap(?:ped)?\s+drone/i.test(text) && domObservedDrones.length > 0) {
-          domObservedDrones.pop();
-        }
-        updateArtificerFoundryHUD();
-        return origToast.apply(this, [msg, ...rest]);
-      };
-      wrapped.__afDroneHook = true;
-      window.showToast = wrapped;
-    }
-
-    document.addEventListener('click', (e) => {
-      if (e.target.closest('#btn-execute-sequence, #btn-end-turn, .btn-execute')) {
-        const setup = ensureOverlayCanvas();
-        if (setup) spawnDroneVolleyTracers(setup.w, setup.h);
-      }
-      setTimeout(updateArtificerFoundryHUD, 40);
-    });
-
-    setInterval(updateArtificerFoundryHUD, 250);
+    requestAnimationFrame(renderConstructsLoop);
+    setInterval(updateArtificerFoundryHUD, 200);
   }
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', installHooks);
+    document.addEventListener('DOMContentLoaded', initFoundryUI);
   } else {
-    installHooks();
+    initFoundryUI();
   }
 })();
