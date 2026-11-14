@@ -67,8 +67,11 @@
   // 1. ARTIFICER TURRETS / CONSTRUCTS RENDERER
   // =========================================================================
   function getTurretList() {
+    if (typeof window.__getArtificerConstructs === 'function') {
+      return window.__getArtificerConstructs();
+    }
     if (typeof gameState === 'undefined' || !gameState) return [];
-    const list = gameState.turrets || gameState.constructs || gameState.artificerTurrets || [];
+    const list = gameState.drones || gameState.turrets || gameState.constructs || gameState.artificerTurrets || [];
     return Array.isArray(list) ? list : [];
   }
 
