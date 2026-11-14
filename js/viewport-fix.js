@@ -85,7 +85,7 @@
       : ((typeof playerSprite !== 'undefined' && playerSprite) ? playerSprite : null);
 
     if (heroObj) {
-      heroObj.x = Math.round(w * 0.22);
+      heroObj.x = Math.round(w * 0.22) + (heroObj.__lungeX || 0);
       heroObj.y = Math.round(h * 0.62);
     }
 
@@ -95,7 +95,7 @@
         if (!ent || !ent.container) return;
         const spacing = count > 1 ? Math.min(125, (w * 0.36) / count) : 0;
         const startX = w * 0.72 - ((count - 1) * spacing) / 2;
-        ent.container.x = Math.round(startX + idx * spacing);
+        ent.container.x = Math.round(startX + idx * spacing) + (ent.container.__lungeX || 0);
         ent.baseY = Math.round(h * 0.60);
         ent.container.y = ent.baseY;
       });
@@ -105,7 +105,7 @@
         if (!spr) return;
         const spacing = count > 1 ? Math.min(125, (w * 0.36) / count) : 0;
         const startX = w * 0.72 - ((count - 1) * spacing) / 2;
-        spr.x = Math.round(startX + idx * spacing);
+        spr.x = Math.round(startX + idx * spacing) + (spr.__lungeX || 0);
         spr.y = Math.round(h * 0.60);
       });
     }
@@ -139,7 +139,7 @@
               : ((typeof playerSprite !== 'undefined' && playerSprite) ? playerSprite : null);
 
             if (heroObj) {
-              heroObj.x = Math.round(w * 0.22);
+              heroObj.x = Math.round(w * 0.22) + (heroObj.__lungeX || 0);
               heroObj.y = Math.round(h * 0.62) + Math.sin(t * 2) * 3;
             }
 
@@ -149,7 +149,7 @@
                 if (ent && ent.container && (!ent.data || ent.data.hp > 0)) {
                   const spacing = count > 1 ? Math.min(125, (w * 0.36) / count) : 0;
                   const startX = w * 0.72 - ((count - 1) * spacing) / 2;
-                  ent.container.x = Math.round(startX + idx * spacing);
+                  ent.container.x = Math.round(startX + idx * spacing) + (ent.container.__lungeX || 0);
                   ent.baseY = Math.round(h * 0.60);
                   ent.container.y = ent.baseY + Math.sin(t * 2.2 + idx) * 3.5;
                 }
